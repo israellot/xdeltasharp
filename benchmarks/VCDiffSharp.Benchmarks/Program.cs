@@ -16,6 +16,14 @@ if (args is ["--levels", var levelSource, var levelTarget])
     return;
 }
 Console.WriteLine("Case,Search mode,Memory mode,Source B,Target B,Patch B,API,ns/op,Allocated B/op");
+if (args is ["--fast-only", var fastSource, var fastTarget])
+{
+    var source = File.ReadAllBytes(fastSource);
+    var target = File.ReadAllBytes(fastTarget);
+    foreach (var memory in new[] { MemoryMode.Default, MemoryMode.LessMemory })
+        MeasureMode("file pair", source, target, VcdiffEncodeMode.Fast, memory, warmupMilliseconds: 1500);
+    return;
+}
 
 foreach (int size in new[] { 0, 4, 8, 16, 32, 64, 256, 2047, 2048, 524287, 524288 })
 {
@@ -121,7 +129,8 @@ static void Benchmark(string name, byte[] source, byte[] target)
     }
 }
 
-static void MeasureMode(string name, byte[] source, byte[] target, VcdiffEncodeMode mode, MemoryMode memoryMode)
+static void MeasureMode(string name, byte[] source, byte[] target, VcdiffEncodeMode mode, MemoryMode memoryMode,
+    int warmupMilliseconds = 150)
 {
     byte[] reference = Vcdiff.Encode(source, target, mode, memoryMode);
     if (!Vcdiff.Decode(source, reference).AsSpan().SequenceEqual(target))
@@ -152,7 +161,7 @@ static void MeasureMode(string name, byte[] source, byte[] target, VcdiffEncodeM
         do
         {
             for (int j = 0; j < batch; j++) encode();
-        } while (Stopwatch.GetElapsedTime(warmup).TotalMilliseconds < 150);
+        } while (Stopwatch.GetElapsedTime(warmup).TotalMilliseconds < warmupMilliseconds);
         double[] timings = new double[7];
         long allocated = 0;
         for (int i = 0; i < timings.Length; i++)

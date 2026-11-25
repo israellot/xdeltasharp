@@ -69,7 +69,7 @@ Level 0 still emits source COPY and RUN instructions. Levels 1–9 can also reus
 
 Two explicit search modes are also available:
 
-- `VcdiffEncodeMode.Fast` uses eight-byte source landmarks and up to 256 collision hops. It emits source copies, literals, and runs.
+- `VcdiffEncodeMode.Fast` uses eight-byte source landmarks and up to 256 collision hops. On windows with sampled source matches, it can look one byte ahead before committing a short COPY. It tests one predicted source address and can resume copying after an isolated byte edit. Fast emits source copies, literals, and runs.
 - `VcdiffEncodeMode.Exhaustive` selects the former Default algorithm. It searches full source and target chains at each probe and ranks candidates by estimated wire cost.
 
 All encoders split targets into 8 MiB windows. Source indexes cover up to 64 MiB and can be reused across windows. Indexed positions use 8-, 16-, or 32-bit entries, with stack scratch for small inputs and pooled storage for larger ones. `MemoryMode.LessMemory` uses the smaller power-of-two bucket count. `MemoryMode.Default` doubles it.
@@ -91,3 +91,5 @@ Run `--levels <source> <target>` after the benchmark project’s `--` separator 
 The recorded comparison used the two repository Moby-Dick editions on an Apple M3 Max, .NET 8.0.25 Release. Both encoders used reusable output buffers and uncompressed sections. Each row reports the median of nine warmed batches of twelve in-memory encodes. The native harness used xdelta3 3.2.2 and its output was checked against the CLI at every level with checksums and application headers disabled.
 
 The earlier [Moby-Dick encoder profile](benchmarks/Results/MobyDick-Default-profile.md) measured the algorithm now named Exhaustive. The `--profile-default` command measures the current level-3 default.
+
+The [Fast lazy-matching comparison](benchmarks/Results/Fast-lazy-copy-net8-arm64.md) covers related files, isolated edits, and shuffled source chunks. Use `--fast-only <source> <target>` to measure Fast on your own pair.

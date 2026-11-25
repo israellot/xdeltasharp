@@ -36,6 +36,71 @@ public class FastEncoderTests
     }
 
     [Fact]
+    public void ShortCopyCanYieldToThePreviousAlignmentOneByteAhead()
+    {
+        byte[] source = Bytes(512);
+        byte[] target = source[64..160];
+        target[32] ^= 0xFF;
+        target[33] ^= 0xFF;
+        // The ordinary probe at 33 finds a real eight-byte COPY at an unrelated landmark.
+        target.AsSpan(33, 8).CopyTo(source.AsSpan(256));
+        source[255] = (byte)~target[32];
+        source[264] = (byte)~target[41];
+        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast);
+        AssertDecodes(source, patch, target);
+        var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
+        Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
+        Assert.Equal(target[32..34], window.Data.ToArray());
+        Assert.Equal(new byte[] { 19, 32, 3, 51, 62 }, window.Instructions.ToArray());
+        Assert.Equal(new byte[] { 64, 34 }, window.Addresses.ToArray());
+    }
+
+    [Fact]
+    public void ResumesUnalignedCopiesAcrossIsolatedEdits()
+    {
+        byte[] source = Bytes(512);
+        byte[] target = source[64..(64 + 60)];
+        int[] edits = [15, 30, 45];
+        foreach (int offset in edits) target[offset] ^= 255;
+        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast);
+        AssertDecodes(source, patch, target);
+        var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
+        Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
+        Assert.Equal(edits.Select(i => target[i]).ToArray(), window.Data.ToArray());
+        Assert.Equal(4, window.Addresses.Length);
+    }
+
+    [Fact]
+    public void APartialSourceContinuationDoesNotSplitALongerRun()
+    {
+        byte[] source = Bytes(512);
+        source[64] = 1;
+        source.AsSpan(65, 16).Clear();
+        source[81] = 1;
+        byte[] target = [.. source[..64], .. new byte[256]];
+        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast);
+        AssertDecodes(source, patch, target);
+        var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
+        Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
+        Assert.Equal(new byte[] { 0 }, window.Data.ToArray());
+        byte[] instructions = [19, 64, 0, .. Integer(256)];
+        Assert.Equal(instructions, window.Instructions.ToArray());
+    }
+
+    [Theory]
+    [InlineData(MemoryMode.Default)]
+    [InlineData(MemoryMode.LessMemory)]
+    public void WindowSamplingCanRecognizeAReusedRegionAwayFromTheStart(MemoryMode memory)
+    {
+        byte[] source = Bytes(4096);
+        byte[] target = new byte[1024];
+        using var finder = new SourceMatchFinder(source, target.Length, memory, Span<byte>.Empty);
+        Assert.False(finder.ShouldUseCopyPrediction(target, 0));
+        source.AsSpan(0, 48).CopyTo(target.AsSpan(target.Length / 2));
+        Assert.True(finder.ShouldUseCopyPrediction(target, 0));
+    }
+
+    [Fact]
     public void HandlesUnalignedSourceAndBackwardExtension()
     {
         byte[] source = Bytes(1024);

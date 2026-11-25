@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 
 namespace VCDiffSharp.Encoding;
 
@@ -55,7 +56,7 @@ internal static class WindowEncoder
         try
         {
             if (mode == VcdiffEncodeMode.Fast)
-                ParseFast(in finder, target, ref writer);
+                ParseFast(in finder, target, targetOffset - segmentOffset, ref writer);
             else if (mode == VcdiffEncodeMode.Default)
                 LevelParser.Parse(in levelSource, target, targetOffset - segmentOffset, profile, memoryMode, stackalloc CopyMatch[16], ref writer);
             else
@@ -68,8 +69,26 @@ internal static class WindowEncoder
         }
     }
 
-    private static void ParseFast(scoped in SourceMatchFinder finder, ReadOnlySpan<byte> target, ref WindowWriter writer)
+    private static void ParseFast(scoped in SourceMatchFinder finder, ReadOnlySpan<byte> target, int sourceDelta,
+        ref WindowWriter writer)
     {
+        if (finder.SourceSegmentLength == 0)
+        {
+            WriteLiteralRuns(target, ref writer);
+            return;
+        }
+        // Pass a constant per window so the JIT can specialize the ordinary and predictive loops.
+        if (finder.ShouldUseCopyPrediction(target, sourceDelta))
+            ParseFastCore(in finder, target, sourceDelta, ref writer, true);
+        else
+            ParseFastCore(in finder, target, sourceDelta, ref writer, false);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ParseFastCore(scoped in SourceMatchFinder finder, ReadOnlySpan<byte> target, int sourceDelta,
+        ref WindowWriter writer, bool lazy)
+    {
+        const int predictionLength = 12;
         int pendingStart = 0;
         int probe = 0;
         while (probe <= target.Length - 3)
@@ -84,15 +103,64 @@ internal static class WindowEncoder
             }
             else if (match.Length >= 4)
             {
+                // A short match elsewhere in the source can hide a resumption of the previous
+                // alignment immediately after an edit. Verify one predicted seed before emitting.
+                if (lazy && match.Length <= 18 && match.ReadOffset - match.WriteOffset != sourceDelta &&
+                    match.End > probe + 1 && target.Length - match.End >= 8)
+                {
+                    var next = finder.FindPredictedMatch(target, probe + 1, pendingStart, sourceDelta);
+                    if (next.Length >= match.Length + 2 && next.End > match.End)
+                        match = next;
+                }
                 writer.Add(target[pendingStart..match.WriteOffset]);
                 writer.Copy(match.ReadOffset, match.Length);
-                probe = match.WriteOffset + match.Length;
+                probe = match.End;
+                // Short incidental duplicates make poor predictors. Avoid immediately testing a
+                // new alignment after a small chunk jumps to a distant part of the source.
+                if (lazy && match.Length >= predictionLength)
+                {
+                    int delta = match.ReadOffset - match.WriteOffset;
+                    bool tryContinuation = match.Length >= 64 || Math.Abs(delta - (long)sourceDelta) <= 64;
+                    sourceDelta = delta;
+                    while (tryContinuation && target.Length - probe > predictionLength)
+                    {
+                        // The byte after a maximal COPY differs. Resume after a single literal
+                        // only when enough subsequent source bytes match at the same alignment.
+                        var next = finder.FindPredictedMatch(target, probe + 1, probe + 1, sourceDelta);
+                        if (next.Length < predictionLength) break;
+                        if (target[probe + 1] == target[probe + 2] && target[probe + 1] == target[probe + 3] &&
+                            target[probe + 1] == target[probe + 4]) break; // Let the normal RUN check decide.
+                        writer.Add(target.Slice(probe, 1));
+                        writer.Copy(next.ReadOffset, next.Length);
+                        probe = next.End;
+                    }
+                }
             }
             else
             {
                 probe++;
                 continue;
             }
+            pendingStart = probe;
+        }
+        writer.Add(target[pendingStart..]);
+    }
+
+    private static void WriteLiteralRuns(ReadOnlySpan<byte> target, ref WindowWriter writer)
+    {
+        int pendingStart = 0;
+        int probe = 0;
+        while (probe <= target.Length - 3)
+        {
+            int run = RunLength(target[probe..]);
+            if (run == 0)
+            {
+                probe++;
+                continue;
+            }
+            writer.Add(target[pendingStart..probe]);
+            writer.Run(target[probe], run);
+            probe += run;
             pendingStart = probe;
         }
         writer.Add(target[pendingStart..]);

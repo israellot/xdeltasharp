@@ -64,7 +64,7 @@ internal readonly ref struct SourceMatchFinder
         {
             int index = block - 1;
             int position = index * 8;
-            if (_source[position] == tail[0])
+            if (_source[position] == tail[0] && CanBeat(window, probe, pendingStart, position, best.Length))
             {
                 var match = Extend(window, probe, pendingStart, position);
                 if (match.Length > best.Length)
@@ -132,6 +132,54 @@ internal readonly ref struct SourceMatchFinder
         while (backward < limit && _source[position - backward - 1] == window[probe - backward - 1])
             backward++;
         return new CopyMatch(position - backward, probe - backward, forward + backward);
+    }
+
+    private bool CanBeat(ReadOnlySpan<byte> window, int probe, int pendingStart, int position, int bestLength)
+    {
+        if (bestLength < 8) return true;
+        // Even with the longest possible backward extension, this forward byte
+        // must match to improve on the incumbent. Equal lengths keep the earlier landmark.
+        int requiredOffset = bestLength - Math.Min(position, probe - pendingStart);
+        return requiredOffset < 0 || (requiredOffset < window.Length - probe &&
+            requiredOffset < _source.Length - position && window[probe + requiredOffset] == _source[position + requiredOffset]);
+    }
+
+    internal bool ShouldUseCopyPrediction(ReadOnlySpan<byte> window, int alignedOffset)
+    {
+        if (_direct || window.Length < 64 || _source.Length < 48) return false;
+        // Inspect at most two short neighborhoods. Checking only the bucket head keeps the sampling work bounded.
+        int center = window.Length / 2;
+        return HasAlignedSample(window, 0, alignedOffset) || (window.Length >= 1024 && HasAlignedSample(window, center, alignedOffset));
+    }
+
+    private bool HasAlignedSample(ReadOnlySpan<byte> window, int start, int alignedOffset)
+    {
+        for (int p = start; p < start + 8; p++)
+        {
+            var sample = window.Slice(p, 48);
+            int aligned = alignedOffset + p;
+            if ((uint)aligned <= (uint)(_source.Length - 12) &&
+                sample[..12].SequenceEqual(_source.Slice(aligned, 12)))
+                return true;
+            int block = _index.Entry(Bucket(sample, BucketCount - 1));
+            if (block == 0) continue;
+            int position = (block - 1) * 8;
+            int length = Math.Abs((long)position - aligned) <= 64 ? 12 : 48;
+            if (position <= _source.Length - length && sample[..length].SequenceEqual(_source.Slice(position, length)))
+                return true;
+        }
+        return false;
+    }
+
+    internal CopyMatch FindPredictedMatch(ReadOnlySpan<byte> window, int probe, int pendingStart, int sourceDelta)
+    {
+        int position = probe + sourceDelta;
+        var tail = window[probe..];
+        if (_source.Length < 8 || (uint)position > (uint)(_source.Length - 8) || tail.Length < 8)
+            return default;
+        if (BinaryPrimitives.ReadUInt64LittleEndian(tail) != BinaryPrimitives.ReadUInt64LittleEndian(_source[position..]))
+            return default;
+        return Extend(window, probe, pendingStart, position);
     }
 
     private static int Bucket(ReadOnlySpan<byte> seed, int mask)
