@@ -51,9 +51,31 @@ public static class Vcdiff
         WindowEncoder.Encode(source, target, destination, mode, memoryMode);
     }
 
+    /// <summary>Creates a patch using xdelta3-style compression levels 0 through 9. The default level is 3.</summary>
+    public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, int compressionLevel,
+        MemoryMode memoryMode = MemoryMode.Default)
+    {
+        ValidateMemoryMode(memoryMode);
+        return WindowEncoder.Encode(source, target, null, VcdiffEncodeMode.Default, memoryMode, compressionLevel)!;
+    }
+
+    /// <summary>Appends a patch using the selected compression level (0 through 9).</summary>
+    public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
+        int compressionLevel, MemoryMode memoryMode = MemoryMode.Default)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ValidateMemoryMode(memoryMode);
+        WindowEncoder.Encode(source, target, destination, VcdiffEncodeMode.Default, memoryMode, compressionLevel);
+    }
+
     private static void ValidateEncodeModes(VcdiffEncodeMode mode, MemoryMode memoryMode)
     {
-        if (mode is not (VcdiffEncodeMode.Fast or VcdiffEncodeMode.Default)) throw new ArgumentOutOfRangeException(nameof(mode));
+        if (mode is not (VcdiffEncodeMode.Fast or VcdiffEncodeMode.Default or VcdiffEncodeMode.Exhaustive)) throw new ArgumentOutOfRangeException(nameof(mode));
+        ValidateMemoryMode(memoryMode);
+    }
+
+    private static void ValidateMemoryMode(MemoryMode memoryMode)
+    {
         if (memoryMode is not (MemoryMode.Default or MemoryMode.LessMemory))
             throw new ArgumentOutOfRangeException(nameof(memoryMode));
     }

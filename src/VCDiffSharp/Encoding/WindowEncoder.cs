@@ -8,8 +8,9 @@ internal static class WindowEncoder
     private const int SourceSegmentSize = 64 << 20;
 
     internal static byte[]? Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte>? destination,
-        VcdiffEncodeMode mode, MemoryMode memoryMode)
+        VcdiffEncodeMode mode, MemoryMode memoryMode, int compressionLevel = MatcherProfile.DefaultLevel)
     {
+        var profile = MatcherProfile.FromLevel(compressionLevel);
         // A single window knows its final size before writing. Only multi-window array results need aggregation.
         ArrayBufferWriter<byte>? collected = null;
         if (destination == null && target.Length > TargetWindowSize)
@@ -17,16 +18,23 @@ internal static class WindowEncoder
 
         int start = 0;
         int segmentLength = Math.Min(source.Length, SourceSegmentSize);
-        Span<byte> smallTable = stackalloc byte[SourceMatchFinder.SmallTableSize(segmentLength, target.Length, memoryMode)];
+        int smallSize = mode == VcdiffEncodeMode.Default
+            ? LevelSourceMatcher.ScratchSize(segmentLength, target.Length, profile.SourceStep, memoryMode)
+            : SourceMatchFinder.SmallTableSize(segmentLength, target.Length, memoryMode);
+        Span<byte> smallTable = stackalloc byte[smallSize];
         do
         {
             int segmentStart = SegmentStart(source.Length, start);
-            using var finder = new SourceMatchFinder(source.Slice(segmentStart, segmentLength), target.Length - start,
-                memoryMode, smallTable, mode);
+            var segment = source.Slice(segmentStart, segmentLength);
+            using var finder = mode == VcdiffEncodeMode.Default ? default :
+                new SourceMatchFinder(segment, target.Length - start, memoryMode, smallTable, mode);
+            using var levelSource = mode == VcdiffEncodeMode.Default
+                ? new LevelSourceMatcher(segment, target.Length - start, profile.SourceStep, memoryMode, smallTable) : default;
             do
             {
                 int length = Math.Min(target.Length - start, TargetWindowSize);
-                byte[]? result = EncodeWindow(in finder, segmentStart, target.Slice(start, length), start == 0, destination, mode, memoryMode);
+                byte[]? result = EncodeWindow(in finder, in levelSource, segmentStart, target.Slice(start, length), start,
+                    destination, mode, memoryMode, profile);
                 if (destination == null) return result;
                 start += length;
             } while (start < target.Length && SegmentStart(source.Length, start) == segmentStart);
@@ -37,19 +45,22 @@ internal static class WindowEncoder
     private static int SegmentStart(int sourceLength, int targetOffset)
         => Math.Min(targetOffset / SourceSegmentSize * SourceSegmentSize, Math.Max(0, sourceLength - SourceSegmentSize));
 
-    private static byte[]? EncodeWindow(in SourceMatchFinder finder, int segmentOffset, ReadOnlySpan<byte> target,
-        bool firstWindow, IBufferWriter<byte>? destination, VcdiffEncodeMode mode, MemoryMode memoryMode)
+    private static byte[]? EncodeWindow(in SourceMatchFinder finder, in LevelSourceMatcher levelSource, int segmentOffset,
+        ReadOnlySpan<byte> target, int targetOffset, IBufferWriter<byte>? destination, VcdiffEncodeMode mode,
+        MemoryMode memoryMode, MatcherProfile profile)
     {
-        Span<int> same = target.Length >= 128 && (mode == VcdiffEncodeMode.Default || finder.SourceSegmentLength >= 128) ? stackalloc int[768] : [];
-        var writer = new WindowWriter(segmentOffset, finder.SourceSegmentLength,
+        Span<int> same = target.Length >= 128 && (mode != VcdiffEncodeMode.Fast || finder.SourceSegmentLength >= 128) ? stackalloc int[768] : [];
+        var writer = new WindowWriter(segmentOffset, mode == VcdiffEncodeMode.Default ? levelSource.Length : finder.SourceSegmentLength,
             stackalloc byte[128], stackalloc byte[64], stackalloc byte[64], same);
         try
         {
             if (mode == VcdiffEncodeMode.Fast)
                 ParseFast(in finder, target, ref writer);
+            else if (mode == VcdiffEncodeMode.Default)
+                LevelParser.Parse(in levelSource, target, targetOffset - segmentOffset, profile, memoryMode, stackalloc CopyMatch[16], ref writer);
             else
-                ParseDefault(in finder, target, memoryMode, ref writer);
-            return writer.Finish(target, firstWindow, destination);
+                ParseExhaustive(in finder, target, memoryMode, ref writer);
+            return writer.Finish(target, targetOffset == 0, destination);
         }
         finally
         {
@@ -87,7 +98,7 @@ internal static class WindowEncoder
         writer.Add(target[pendingStart..]);
     }
 
-    private static void ParseDefault(scoped in SourceMatchFinder source, ReadOnlySpan<byte> target,
+    private static void ParseExhaustive(scoped in SourceMatchFinder source, ReadOnlySpan<byte> target,
         MemoryMode memoryMode, ref WindowWriter writer)
     {
         Span<byte> scratch = stackalloc byte[TargetMatchFinder.SmallTableSize(target.Length, memoryMode)];

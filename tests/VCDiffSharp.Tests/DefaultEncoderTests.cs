@@ -45,7 +45,7 @@ public class DefaultEncoderTests
         byte[] source = new byte[duplicates * 8 + length];
         for (int i = 0; i < duplicates; i++) target.AsSpan(0, 8).CopyTo(source.AsSpan(8 * i));
         target.CopyTo(source, duplicates * 8);
-        byte[] patch = Vcdiff.Encode(source, target);
+        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Exhaustive);
         var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
         Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
         Assert.True(window.Data.IsEmpty);
@@ -73,7 +73,7 @@ public class DefaultEncoderTests
     {
         byte[] word = "ABCDthe first occurrence has a long suffix"u8.ToArray();
         byte[] target = [.. word, .. "!ABCD?ABCD#"u8, .. word];
-        byte[] patch = Vcdiff.Encode([], target);
+        byte[] patch = Vcdiff.Encode([], target, VcdiffEncodeMode.Exhaustive);
         var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
         Assert.True(reader.TryReadWindow(0, 0, target.Length, out var window));
         Assert.Equal(0, window.Addresses[^1]);
@@ -136,7 +136,7 @@ public class DefaultEncoderTests
         byte[] source = new byte[512];
         new Random(91).NextBytes(source);
         byte[] target = [.. source[7..16], 255, .. source[7..200]];
-        byte[] patch = Vcdiff.Encode(source, target);
+        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Exhaustive);
         var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
         Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
         Assert.Equal(Integer(193), window.Instructions[^2..].ToArray());
@@ -178,7 +178,7 @@ public class DefaultEncoderTests
     {
         byte[] source = "an entirely original block copied from the external dictionary"u8.ToArray();
         byte[] target = [.. source, .. "----"u8, .. source[^8..], .. "----"u8];
-        byte[] patch = Vcdiff.Encode(source, target);
+        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Exhaustive);
         var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
         Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
         Assert.Equal(new byte[] { (byte)'-' }, window.Data.ToArray());

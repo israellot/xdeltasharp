@@ -10,6 +10,11 @@ if (args is ["--profile-default", var sourcePath, var targetPath])
     ProfileDefault(File.ReadAllBytes(sourcePath), File.ReadAllBytes(targetPath));
     return;
 }
+if (args is ["--levels", var levelSource, var levelTarget])
+{
+    BenchmarkLevels(File.ReadAllBytes(levelSource), File.ReadAllBytes(levelTarget));
+    return;
+}
 Console.WriteLine("Case,Search mode,Memory mode,Source B,Target B,Patch B,API,ns/op,Allocated B/op");
 
 foreach (int size in new[] { 0, 4, 8, 16, 32, 64, 256, 2047, 2048, 524287, 524288 })
@@ -49,6 +54,35 @@ static byte[] Bytes(int length)
     var bytes = new byte[length];
     new Random(731).NextBytes(bytes);
     return bytes;
+}
+
+static void BenchmarkLevels(byte[] source, byte[] target)
+{
+    Console.WriteLine("Level,Patch bytes,Median ms");
+    for (int level = 0; level <= 9; level++)
+    {
+        byte[] expected = Vcdiff.Encode(source, target, level);
+        if (!Vcdiff.Decode(source, expected).AsSpan().SequenceEqual(target))
+            throw new InvalidDataException("Level " + level + " failed to reconstruct target.");
+        var writer = new ArrayBufferWriter<byte>(expected.Length);
+        void Encode()
+        {
+            writer.ResetWrittenCount();
+            Vcdiff.Encode(source, target, writer, level);
+        }
+        var warm = Stopwatch.StartNew();
+        while (warm.ElapsedMilliseconds < 600) Encode();
+        var times = new double[9];
+        for (int batch = 0; batch < times.Length; batch++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            for (int i = 0; i < 12; i++) Encode();
+            times[batch] = Stopwatch.GetElapsedTime(start).TotalMilliseconds / 12;
+        }
+        if (!expected.AsSpan().SequenceEqual(writer.WrittenSpan)) throw new InvalidDataException("Writer output differs.");
+        Array.Sort(times);
+        Console.WriteLine(FormattableString.Invariant($"{level},{expected.Length},{times[4]:F3}"));
+    }
 }
 
 static void ProfileDefault(byte[] source, byte[] target)

@@ -33,6 +33,7 @@ Malformed patches and output above `maxOutputBytes` raise `InvalidDataException`
 | --- | --- |
 | `Vcdiff` | Public entry points, file header, window sequence, and total output limit. |
 | `Encoding/WindowEncoder` | Select source segments and choose ADD, RUN, or COPY under the requested search policy. |
+| `Encoding/LevelParser` | Apply the numbered matcher profile and resolve pending instructions before writing. |
 | `Encoding/WindowWriter` | Frame the window and write its data, instructions, and COPY addresses. |
 | `Encoding/SourceMatchFinder` | Search an indexed source segment. The encoder can reuse the index across windows that select that segment. |
 | `Encoding/TargetMatchFinder` | Search four-byte seeds at earlier positions in the current target window, allowing overlapping COPY operations. |
@@ -44,22 +45,34 @@ Malformed patches and output above `maxOutputBytes` raise `InvalidDataException`
 
 Run `dotnet test -c Release` for the [RFC 3284](https://www.rfc-editor.org/rfc/rfc3284.html) vectors, malformed inputs, and [independent xdelta3 and open-vcdiff fixtures](tests/VCDiffSharp.Tests/Fixtures/README.md).
 
-## Encoding modes
+## Encoding levels
 
-`Vcdiff.Encode(source, target)` uses **Default**. It searches the full source bucket chain and earlier target positions for each four-byte target seed. The parser compares the estimated savings of COPY and RUN against extending the pending ADD. It accounts for COPY address modes, opcode pairs, and the first dictionary header. Before committing a short match it looks ahead up to seven positions for a better alignment. This is a greedy search. Highly repetitive inputs can make full-chain searches expensive.
-
-With an empty source, Default can encode 65,536 bytes of repeated `ABCD` in a 24-byte patch: ADD four bytes, then COPY the remaining 65,532 from target offset zero. Target history and address caches start fresh at each 8 MiB window. Large windows rent target-index storage on first use. Tiny windows scan earlier positions directly.
-
-`VcdiffEncodeMode.Fast` checks the source bucket head and follows up to 256 collision links per indexed probe. It keeps the longest match, including backward extension into pending literals, and keeps the first matching landmark on ties. It emits literals, source copies, and runs. Choose it explicitly when encoding speed is the priority.
-
-The source matcher uses DeltaSharp’s eight-byte landmarks and compact, one-based block indices. For a tiny target both modes can probe four-byte seeds directly. Against a disproportionately large source, Fast skips the source index and Default scans the selected source segment directly. For indexed sources through 2,047 bytes, bucket heads and collision links fit on the stack. Larger tables store both in a single rental with 16- or 32-bit entries. A source index covers up to 64 MiB and serves consecutive 8 MiB target windows selecting the same segment. Matches can extend backward into pending literals.
-
-Pass `memoryMode: MemoryMode.LessMemory` to either Encode output overload to reduce the bucket count for indexed searches. For a source segment with 300 complete eight-byte blocks, `LessMemory` rounds up to 512 buckets. `MemoryMode.Default` doubles that to 1,024. Default's target index also doubles its bucket count under the larger memory policy. Both policies retain all links. Fast's hop cap can make its output sensitive to bucket assignments.
+Both allocating and buffer-writer APIs accept an integer compression level from **0 to 9** and an optional memory policy. Omitting the level, or choosing `VcdiffEncodeMode.Default`, uses **level 3**.
 
 ```csharp
-byte[] patch = Vcdiff.Encode(source, target, memoryMode: MemoryMode.LessMemory);
-Vcdiff.Encode(source, target, destinationWriter, VcdiffEncodeMode.Fast, MemoryMode.LessMemory);
+byte[] patch = Vcdiff.Encode(source, target, compressionLevel: 9);
+Vcdiff.Encode(source, target, destinationWriter, compressionLevel: 3, memoryMode: MemoryMode.LessMemory);
 ```
+
+The level mapping follows xdelta3 3.2.2. The target seed is four bytes, the indexed source seed is nine bytes, and runs start at eight equal bytes. The lazy limit controls which short matches get another look at the next position. An improving lazy match must extend past the pending match. The stop length ends a target-chain search early. [Upstream CLI mapping](https://github.com/jmacd/xdelta/blob/v3.2.2/xdelta3/xdelta3-main.h) · [Matcher settings](https://github.com/jmacd/xdelta/blob/v3.2.2/xdelta3/xdelta3-cfgs.h)
+
+| Level | Source stride | Target candidates | Lazy candidates | Lazy limit | Stop length |
+|---|---:|---:|---:|---:|---:|
+| 0 | 26 | 0 | 0 | 6 | — |
+| 1 | 26 | 1 | 1 | 6 | 6 |
+| 2 | 15 | 1 | 1 | 18 | 18 |
+| **3–5** | **8** | **4** | **1** | **18** | **35** |
+| 6 | 3 | 8 | 2 | 36 | 70 |
+| 7–9 | 2 | 44 | 13 | 90 | 70 |
+
+Level 0 still emits source COPY and RUN instructions. Levels 1–9 can also reuse earlier target data. The parser tries runs and source matches first. Positions that reach target matching enter a newest-first index. Long accepted matches skip their interiors. A bounded instruction buffer delays emission so a later source match can extend backwards and absorb previously proposed instructions. Hashing, source-position prediction, overlap resolution, and the VCDIFF writer are managed implementations. Patch size and speed depend on the data. The decoder needs only the patch and its source.
+
+Two explicit search modes are also available:
+
+- `VcdiffEncodeMode.Fast` uses eight-byte source landmarks and up to 256 collision hops. It emits source copies, literals, and runs.
+- `VcdiffEncodeMode.Exhaustive` selects the former Default algorithm. It searches full source and target chains at each probe and ranks candidates by estimated wire cost.
+
+All encoders split targets into 8 MiB windows. Source indexes cover up to 64 MiB and can be reused across windows. Indexed positions use 8-, 16-, or 32-bit entries, with stack scratch for small inputs and pooled storage for larger ones. `MemoryMode.LessMemory` uses the smaller power-of-two bucket count. `MemoryMode.Default` doubles it.
 
 The writer packs adjacent instructions when the default table permits it and chooses among the standard address modes. It compares the complete window size with a single dictionary-free ADD, including the cost of declaring the source segment. Small windows use stack scratch and borrow the first literal span. The buffer-writer overload appends each completed window to the caller’s destination. The allocating overload creates an exact-sized result for single-window patches.
 
@@ -71,6 +84,10 @@ Run the Release benchmark from the repository root.
 dotnet run -c Release --project benchmarks/VCDiffSharp.Benchmarks
 ```
 
-Optionally append two file paths after `--` to include a source/target pair. The harness checks the reconstructed bytes and reports median time per call, managed allocations per call, and patch size for both public output paths. The writer measurement reuses a preallocated destination. The recorded file pair uses DeltaSharp’s Moby-Dick editions, pg15.txt and pg2701.txt. [Default and Fast on .NET 8 Arm64](benchmarks/Results/Default-vs-Fast-net8-arm64.csv) · [Fast memory mode comparison](benchmarks/Results/Fast-memory-modes-net8-arm64.csv) · [Original collision-chain baseline](benchmarks/Results/Fast-collision-chains-net8-arm64.csv) · [Earlier single-candidate baseline](benchmarks/Results/Fast-net8-arm64.csv)
+Optionally append two file paths after `--` to include a source/target pair. The harness checks the reconstructed bytes and reports median time per call, managed allocations per call, and patch size for both public output paths. The writer measurement reuses a preallocated destination. The recorded file pair uses DeltaSharp’s Moby-Dick editions, pg15.txt and pg2701.txt. [Previous full-chain Default and Fast on .NET 8 Arm64](benchmarks/Results/Default-vs-Fast-net8-arm64.csv) · [Fast memory mode comparison](benchmarks/Results/Fast-memory-modes-net8-arm64.csv) · [Original collision-chain baseline](benchmarks/Results/Fast-collision-chains-net8-arm64.csv) · [Earlier single-candidate baseline](benchmarks/Results/Fast-net8-arm64.csv)
 
-The [Moby-Dick encoder profile](benchmarks/Results/MobyDick-Default-profile.md) compares Default with xdelta3 level 3 and includes the focused profiling command.
+Run `--levels <source> <target>` after the benchmark project’s `--` separator to measure each numeric level. [Moby-Dick level comparison with native xdelta3](benchmarks/Results/CompressionLevels-net8-arm64.csv)
+
+The recorded comparison used the two repository Moby-Dick editions on an Apple M3 Max, .NET 8.0.25 Release. Both encoders used reusable output buffers and uncompressed sections. Each row reports the median of nine warmed batches of twelve in-memory encodes. The native harness used xdelta3 3.2.2 and its output was checked against the CLI at every level with checksums and application headers disabled.
+
+The earlier [Moby-Dick encoder profile](benchmarks/Results/MobyDick-Default-profile.md) measured the algorithm now named Exhaustive. The `--profile-default` command measures the current level-3 default.

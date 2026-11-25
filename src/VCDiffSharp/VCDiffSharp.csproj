@@ -8,5 +8,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="VCDiffSharp.Tests" />
     <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

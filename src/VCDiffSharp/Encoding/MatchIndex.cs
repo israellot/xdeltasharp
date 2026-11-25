@@ -17,10 +17,10 @@ internal readonly ref struct MatchIndex
         return memoryMode == MemoryMode.Default ? 2 * rounded : rounded;
     }
 
-    internal MatchIndex(int positions, int buckets, Span<byte> scratch)
+    internal MatchIndex(int positions, int buckets, Span<byte> scratch, int? links = null)
     {
         BucketCount = buckets;
-        int entries = buckets + positions;
+        int entries = buckets + (links ?? positions);
         if (positions <= byte.MaxValue)
         {
             _small = scratch[..entries];
@@ -79,7 +79,7 @@ internal readonly ref struct MatchIndex
         }
     }
 
-    private void Set(int slot, int value)
+    internal void Set(int slot, int value)
     {
         if (_large != null) _large[slot] = value;
         else if (_medium != null) _medium[slot] = (ushort)value;
