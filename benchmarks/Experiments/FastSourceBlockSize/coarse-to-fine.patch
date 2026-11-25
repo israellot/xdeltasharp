@@ -1,0 +1,177 @@
+--- /dev/null
++++ b/src/VCDiffSharp/Encoding/CoarseMatches.cs
+@@ -0,0 +1,62 @@
++using System.Buffers.Binary;
++using System.Numerics;
++
++namespace VCDiffSharp.Encoding;
++
++// Experimental 32-byte landmarks, using the same seed hash as the full-width block-size benchmark.
++internal readonly ref struct CoarseMatches
++{
++    private readonly ReadOnlySpan<byte> _source;
++    private readonly MatchIndex _index;
++    internal CoarseMatches(ReadOnlySpan<byte> source, MemoryMode memory, Span<byte> scratch)
++    {
++        _source = source;
++        int blocks = source.Length / 32;
++        _index = new MatchIndex(blocks, MatchIndex.Buckets(blocks, memory), scratch);
++        for (int block = blocks - 1; block >= 0; block--)
++            _index.Prepend(Bucket(source[(block * 32)..]), block);
++    }
++
++    private int Bucket(ReadOnlySpan<byte> data)
++    {
++        ulong x = BinaryPrimitives.ReadUInt64LittleEndian(data);
++        for (int offset = 8; offset < 32; offset += 8)
++            x = BitOperations.RotateLeft(x, 19) ^ BinaryPrimitives.ReadUInt64LittleEndian(data[offset..]);
++        unchecked
++        {
++            x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9UL;
++            x = (x ^ (x >> 27)) * 0x94d049bb133111ebUL;
++            return (int)(x ^ (x >> 31)) & (_index.BucketCount - 1);
++        }
++    }
++
++    internal CopyMatch Find(ReadOnlySpan<byte> target, int probe, int floor, int minimum)
++    {
++        var tail = target[probe..];
++        int entry = _index.Entry(Bucket(tail));
++        CopyMatch best = default;
++        for (int hops = 0; entry != 0; hops++)
++        {
++            int block = entry - 1;
++            int pos = block * 32;
++            var candidate = _source[pos..];
++            if (tail[..32].SequenceEqual(candidate[..32]))
++            {
++                int forward = 32 + tail[32..].CommonPrefixLength(candidate[32..]);
++                int back = 0, limit = Math.Min(pos, probe - floor);
++                while (back < limit && target[probe-back-1] == _source[pos-back-1]) back++;
++                int length = forward + back;
++                if (length >= minimum && length > best.Length)
++                {
++                    best = new CopyMatch(pos-back, probe-back, length);
++                    if (length == target.Length - floor) break;
++                }
++            }
++            if (hops == 256) break;
++            entry = _index.Entry(_index.BucketCount + block);
++        }
++        return best;
++    }
++
++    public void Dispose() => _index.Dispose();
++}
+--- a/src/VCDiffSharp/Encoding/WindowEncoder.cs
++++ b/src/VCDiffSharp/Encoding/WindowEncoder.cs
+@@ -13,0 +14,2 @@
++        if (mode == VcdiffEncodeMode.Fast && source.Length >= 32 && target.Length >= 64)
++            return EncodeCascade(source, target, destination, memoryMode);
+@@ -41,0 +44,49 @@
++        } while (start < target.Length);
++        return collected?.WrittenSpan.ToArray();
++    }
++
++#if ANCHOR128
++    private const int AnchorMinimum = 128;
++#elif ANCHOR64
++    private const int AnchorMinimum = 64;
++#else
++    private const int AnchorMinimum = 32;
++#endif
++
++#if COARSE_STEP7
++    private const int CoarseProbeStep = 7;
++#elif COARSE_STEP3
++    private const int CoarseProbeStep = 3;
++#else
++    private const int CoarseProbeStep = 1;
++#endif
++
++    private static byte[]? EncodeCascade(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target,
++        IBufferWriter<byte>? destination, MemoryMode memory)
++    {
++        ArrayBufferWriter<byte>? collected = null;
++        if (destination == null && target.Length > TargetWindowSize)
++            destination = collected = new ArrayBufferWriter<byte>();
++        int length = Math.Min(source.Length, SourceSegmentSize);
++        Span<byte> coarseScratch = stackalloc byte[768];
++        Span<byte> fineScratch = stackalloc byte[SourceMatchFinder.SmallTableSize(length, target.Length, memory)];
++        int start = 0;
++        do
++        {
++            int offset = SegmentStart(source.Length, start);
++            var segment = source.Slice(offset, length);
++            using var coarse = new CoarseMatches(segment, memory, coarseScratch);
++            scoped SourceMatchFinder fine = default;
++            bool indexed = false;
++            try
++            {
++                do
++                {
++                    var window = target.Slice(start, Math.Min(target.Length-start, TargetWindowSize));
++                    byte[]? result = CascadeWindow(in coarse, segment, offset, window, start, fineScratch,
++                        ref fine, ref indexed, memory, destination);
++                    if (destination == null) return result;
++                    start += window.Length;
++                } while (start < target.Length && SegmentStart(source.Length,start)==offset);
++            }
++            finally { fine.Dispose(); }
+@@ -45,0 +97,47 @@
++    private static byte[]? CascadeWindow(scoped in CoarseMatches coarse, ReadOnlySpan<byte> segment,
++        int offset, ReadOnlySpan<byte> window, int start, Span<byte> fineScratch, ref SourceMatchFinder fine,
++        ref bool indexed, MemoryMode memory, IBufferWriter<byte>? destination)
++    {
++        Span<int> same = window.Length >= 128 && segment.Length >= 128 ? stackalloc int[768] : [];
++        var writer = new WindowWriter(offset, segment.Length, stackalloc byte[128],
++            stackalloc byte[64], stackalloc byte[64], same);
++        int floor = 0, probe = 0, delta = start-offset;
++        bool lazy = false, sampled = false;
++        try
++        {
++            while (floor < window.Length)
++            {
++                CopyMatch anchor = default;
++                while (probe <= window.Length-32)
++                {
++                    anchor = coarse.Find(window, probe, floor, AnchorMinimum);
++                    if (anchor.Length != 0) break;
++                    probe += CoarseProbeStep;
++                }
++                int end = anchor.Length == 0 ? window.Length : anchor.WriteOffset;
++                var gap = window[floor..end];
++                if (gap.Length >= 8)
++                {
++                    if (!indexed)
++                    {
++                        fine = new SourceMatchFinder(segment, window.Length, memory, fineScratch);
++                        indexed = true;
++                    }
++                    if (!sampled)
++                    {
++                        lazy = fine.ShouldUseCopyPrediction(window, start-offset);
++                        sampled = true;
++                    }
++                    ParseFastCore(in fine, gap, delta+floor, ref writer, lazy);
++                }
++                else WriteLiteralRuns(gap, ref writer);
++                if (anchor.Length == 0) break;
++                writer.Copy(anchor.ReadOffset, anchor.Length);
++                delta = anchor.ReadOffset-anchor.WriteOffset;
++                floor = probe = anchor.End;
++            }
++            return writer.Finish(window,start==0,destination);
++        }
++        finally { writer.Dispose(); }
++    }
++
+--- a/src/VCDiffSharp/VCDiffSharp.csproj
++++ b/src/VCDiffSharp/VCDiffSharp.csproj
+@@ -7,0 +8,6 @@
++  <PropertyGroup>
++    <DefineConstants Condition="'$(CoarseMinimum)' == '64'">$(DefineConstants);ANCHOR64</DefineConstants>
++    <DefineConstants Condition="'$(CoarseMinimum)' == '128'">$(DefineConstants);ANCHOR128</DefineConstants>
++    <DefineConstants Condition="'$(CoarseStep)' == '3'">$(DefineConstants);COARSE_STEP3</DefineConstants>
++    <DefineConstants Condition="'$(CoarseStep)' == '7'">$(DefineConstants);COARSE_STEP7</DefineConstants>
++  </PropertyGroup>
