@@ -1,17 +1,23 @@
 # VCDiffSharp
 
-A .NET library for creating and applying VCDIFF patches. This repository contains the proposed API and project structure. The codec methods currently throw `NotImplementedException`.
+A .NET 8 library for decoding VCDIFF patches. It supports RFC 3284 version 0 with the default code table and uncompressed sections. The encoder is currently a scaffold.
 
 ## Public API
 
 ```csharp
 using VCDiffSharp;
 
-byte[] patch = Vcdiff.Encode(source, target);
-byte[] restored = Vcdiff.Decode(source, patch, maxOutputBytes: target.Length);
+byte[] restored = Vcdiff.Decode(source, patch, maxOutputBytes: 64 * 1024 * 1024);
+
+// When the caller already owns the output buffer:
+int bytesWritten = Vcdiff.Decode(source, patch, destination.AsSpan());
 ```
 
-Callers can also encode into an `IBufferWriter<byte>` or decode into a `Span<byte>`. The span overload returns the number of target bytes written.
+The allocating overload reads the window lengths, checks the cumulative output limit, and allocates the target once. Set `maxOutputBytes` to the largest target your application accepts. The span overload writes windows in order and may leave partial output on failure.
+
+The decoder handles ADD, RUN, all nine COPY address modes, paired instructions, and overlapping copies inside the current window. Each window can select a dictionary from the source file or previously reconstructed target output. Pass an empty source for a patch that uses only target data.
+
+Malformed patches and output above `maxOutputBytes` raise `InvalidDataException`. An undersized destination raises `ArgumentException`. Custom code tables, secondary compression, xdelta3 application headers and checksums, and open-vcdiff extension versions raise `NotSupportedException`.
 
 ## Structure
 
@@ -22,11 +28,12 @@ Callers can also encode into an `IBufferWriter<byte>` or decode into a `Span<byt
 | `Encoding/SourceMatchFinder` | Search an indexed source segment. The encoder can reuse the index across windows that select that segment. |
 | `Encoding/TargetMatchFinder` | Search earlier positions in the current target window. Each window starts with an empty index. |
 | `Encoding/CopyMatch` | Carry a candidate’s read offset, target write offset, and length from either finder. |
+| `Decoding/WindowReader` | Parse file and window headers, validate the dictionary range, and bound the three section cursors. |
 | `Decoding/WindowDecoder` | Execute the data, instruction, and address sections against the selected dictionary and the target window being reconstructed. |
 | `Format/AddressCache` | Maintain the per-window NEAR and SAME caches shared by the encoding and decoding algorithms. |
 | `Format/DefaultCodeTable` | Describe the single and paired instructions represented by each of the 256 default opcodes. |
 
-The initial design targets [RFC 3284](https://www.rfc-editor.org/rfc/rfc3284.html) version 0, the default code table, and uncompressed sections. The test project is reserved for format vectors and interoperability tests.
+Run `dotnet test -c Release` for the [RFC 3284](https://www.rfc-editor.org/rfc/rfc3284.html) vectors, malformed inputs, and [independent xdelta3 and open-vcdiff fixtures](tests/VCDiffSharp.Tests/Fixtures/README.md).
 
 ## How the encoder finds a COPY
 
