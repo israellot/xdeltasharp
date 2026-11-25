@@ -2,13 +2,13 @@ using VCDiffSharp.Format;
 
 namespace VCDiffSharp.Decoding;
 
-internal ref struct WindowDecoder(Window window, ReadOnlySpan<byte> dictionary, Span<byte> target, AddressCache cache)
+internal ref struct WindowDecoder(Window window, WindowDictionary dictionary, Span<byte> target, AddressCache cache)
 {
     private SectionReader _data = new(window.Data);
     private SectionReader _instructions = new(window.Instructions);
     private SectionReader _addresses = new(window.Addresses);
     private readonly Span<byte> _target = target;
-    private readonly ReadOnlySpan<byte> _dictionary = dictionary;
+    private readonly WindowDictionary _dictionary = dictionary;
     private int _written;
 
     internal void Decode()
@@ -44,21 +44,18 @@ internal ref struct WindowDecoder(Window window, ReadOnlySpan<byte> dictionary, 
                 destination.Fill(_data.ReadByte());
                 break;
             case InstructionKind.Copy:
-                uint address = cache.ReadAddress(instruction.Mode, (long)_dictionary.Length + _written, ref _addresses);
+                long address = cache.ReadAddress(instruction.Mode, _dictionary.Length + _written, ref _addresses);
                 Copy(address, destination);
                 break;
         }
         _written += size;
     }
 
-    private void Copy(uint address, Span<byte> destination)
+    private void Copy(long address, Span<byte> destination)
     {
         if (address < _dictionary.Length)
         {
-            int start = (int)address;
-            if (destination.Length > _dictionary.Length - start)
-                throw new InvalidDataException("COPY extends beyond the selected dictionary.");
-            _dictionary.Slice(start, destination.Length).CopyTo(destination);
+            _dictionary.Copy(address, destination);
             return;
         }
 

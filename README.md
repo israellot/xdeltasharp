@@ -7,13 +7,20 @@ A .NET 8 library for decoding VCDIFF patches. It supports RFC 3284 version 0 wit
 ```csharp
 using VCDiffSharp;
 
-byte[] restored = Vcdiff.Decode(source, patch, maxOutputBytes: 64 * 1024 * 1024);
+byte[] restored = Vcdiff.Decode(source, patch, maxOutputBytes: 256 * 1024 * 1024);
 
 // When the caller already owns the output buffer:
 int bytesWritten = Vcdiff.Decode(source, patch, destination.AsSpan());
+
+// File or stream inputs, including targets larger than 2 GiB:
+long totalWritten = Vcdiff.Decode(sourceStream, patchStream, outputStream);
 ```
 
 The allocating overload reads the window lengths, checks the cumulative output limit, and allocates the target once. Set `maxOutputBytes` to the largest target your application accepts. The span overload writes windows in order and may leave partial output on failure.
+
+All overloads enforce a **64 MiB maximum decoded target window**, inclusive, matching [xdelta3’s default hard limit](https://github.com/jmacd/xdelta/blob/v3.2.2/xdelta3/xdelta3.h). Use `maxWindowBytes` to request a smaller limit. The limit applies independently to every window. The encoder design uses xdelta3’s **8 MiB default target window**.
+
+The stream overload reads the patch sequentially and uses 64-bit file offsets and cumulative output counts. It buffers the current decoded window and its encoded sections (which must fit in one .NET byte array), and reads dictionary COPY ranges on demand. For external dictionaries, supply a readable, seekable source. For windows referencing earlier target output, open the destination for reading, writing, and seeking. Other windows can decode to a write-only stream. All offsets start at the streams’ initial positions, and the streams remain open. Use `Stream.Null` as the source for dictionary-free patches.
 
 The decoder handles ADD, RUN, all nine COPY address modes, paired instructions, and overlapping copies inside the current window. Each window can select a dictionary from the source file or previously reconstructed target output. Pass an empty source for a patch that uses only target data.
 

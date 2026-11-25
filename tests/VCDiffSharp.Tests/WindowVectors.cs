@@ -7,7 +7,7 @@ internal static class WindowVectors
     internal static byte[] Patch(params byte[][] windows)
         => [0xD6, 0xC3, 0xC4, 0, 0, .. windows.SelectMany(window => window)];
 
-    internal static byte[] Integer(int value)
+    internal static byte[] Integer(long value)
     {
         var digits = new List<byte> { (byte)(value & 127) };
         for (value >>= 7; value > 0; value >>= 7)
@@ -17,7 +17,7 @@ internal static class WindowVectors
     }
 
     internal static byte[] Window(int targetLength, byte[] data, byte[] instructions, byte[] addresses,
-        byte indicator = 0, int segmentLength = 0, int segmentOffset = 0)
+        byte indicator = 0, long segmentLength = 0, long segmentOffset = 0)
     {
         byte[] delta = [.. Integer(targetLength), 0, .. Integer(data.Length), .. Integer(instructions.Length),
             .. Integer(addresses.Length), .. data, .. instructions, .. addresses];
@@ -33,5 +33,9 @@ internal static class WindowVectors
         Assert.Equal(expected, buffer[1..^1]);
         Assert.Equal(0xCC, buffer[0]);
         Assert.Equal(0xCC, buffer[^1]);
+
+        using var output = new MemoryStream();
+        Assert.Equal(expected.LongLength, Vcdiff.Decode(new MemoryStream(source), new MemoryStream(patch), output));
+        Assert.Equal(expected, output.ToArray());
     }
 }

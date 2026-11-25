@@ -16,14 +16,14 @@ internal ref struct SectionReader(ReadOnlySpan<byte> bytes)
         return value;
     }
 
-    internal uint ReadInteger()
+    internal long ReadInteger()
     {
-        uint value = 0;
+        long value = 0;
         byte digit;
         do
         {
             digit = ReadByte();
-            if (value > uint.MaxValue >> 7)
+            if (value > long.MaxValue >> 7)
                 throw new InvalidDataException("VCDIFF integer exceeds the supported range.");
 
             value = (value << 7) | (uint)(digit & 0x7F);
@@ -33,7 +33,7 @@ internal ref struct SectionReader(ReadOnlySpan<byte> bytes)
 
     internal int ReadLength()
     {
-        uint length = ReadInteger();
+        long length = ReadInteger();
         if (length > int.MaxValue)
             throw new InvalidDataException("VCDIFF length or offset exceeds the supported span size.");
         return (int)length;
