@@ -1,0 +1,58 @@
+--- a/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
++++ b/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
+@@ -8,0 +9,12 @@
++#if FAST_BLOCK32
++    private const int BlockBytes = 32;
++#elif FAST_BLOCK16
++    private const int BlockBytes = 16;
++#else
++    private const int BlockBytes = 8;
++#endif
++#if FAST_WIDE_SEED
++    private const int SeedBytes = BlockBytes;
++#else
++    private const int SeedBytes = 8;
++#endif
+@@ -20 +32 @@
+-        int blocks = sourceLength / 8;
++        int blocks = sourceLength / BlockBytes;
+@@ -34 +46 @@
+-        if (targetLength <= 32 || source.Length < 8 || disproportionateIndex)
++        if (targetLength <= 32 || source.Length < BlockBytes || disproportionateIndex)
+@@ -40 +52 @@
+-        int blocks = source.Length / 8;
++        int blocks = source.Length / BlockBytes;
+@@ -43 +55 @@
+-            _index.Prepend(Bucket(source[(i * 8)..], BucketCount - 1), i);
++            _index.Prepend(Bucket(source[(i * BlockBytes)..], BucketCount - 1), i);
+@@ -59 +71 @@
+-        if (tail.Length < 8) return default;
++        if (tail.Length < SeedBytes) return default;
+@@ -66 +78 @@
+-            int position = index * 8;
++            int position = index * BlockBytes;
+@@ -103 +115 @@
+-        if (tail.Length < 8) return;
++        if (tail.Length < SeedBytes) return;
+@@ -108 +120 @@
+-            int position = index * 8;
++            int position = index * BlockBytes;
+@@ -166 +178 @@
+-            int position = (block - 1) * 8;
++            int position = (block - 1) * BlockBytes;
+@@ -187,0 +200,7 @@
++#if FAST_WIDE_SEED && (FAST_BLOCK16 || FAST_BLOCK32)
++        x = System.Numerics.BitOperations.RotateLeft(x, 19) ^ BinaryPrimitives.ReadUInt64LittleEndian(seed[8..]);
++#endif
++#if FAST_WIDE_SEED && FAST_BLOCK32
++        x = System.Numerics.BitOperations.RotateLeft(x, 19) ^ BinaryPrimitives.ReadUInt64LittleEndian(seed[16..]);
++        x = System.Numerics.BitOperations.RotateLeft(x, 19) ^ BinaryPrimitives.ReadUInt64LittleEndian(seed[24..]);
++#endif
+--- a/src/VCDiffSharp/VCDiffSharp.csproj
++++ b/src/VCDiffSharp/VCDiffSharp.csproj
+@@ -7,0 +8,5 @@
++  <PropertyGroup>
++    <DefineConstants Condition="'$(FastBenchmarkStride)' == '16'">$(DefineConstants);FAST_BLOCK16</DefineConstants>
++    <DefineConstants Condition="'$(FastBenchmarkStride)' == '32'">$(DefineConstants);FAST_BLOCK32</DefineConstants>
++    <DefineConstants Condition="'$(FastBenchmarkWideSeed)' == 'true'">$(DefineConstants);FAST_WIDE_SEED</DefineConstants>
++  </PropertyGroup>
