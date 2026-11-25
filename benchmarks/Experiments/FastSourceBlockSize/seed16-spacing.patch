@@ -1,0 +1,53 @@
+--- a/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
++++ b/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
+@@ -8,0 +9,12 @@
++#if FAST_STRIDE4
++    private const int Stride = 4;
++#else
++    private const int Stride = 8;
++#endif
++#if FAST_SEED16
++    private const int Seed = 16;
++#else
++    private const int Seed = 8;
++#endif
++    private static int Landmarks(int length) => length < Seed ? 0 : 1 + (length - Seed) / Stride;
++
+@@ -20 +32 @@
+-        int blocks = sourceLength / 8;
++        int blocks = Landmarks(sourceLength);
+@@ -34 +46 @@
+-        if (targetLength <= 32 || source.Length < 8 || disproportionateIndex)
++        if (targetLength <= 32 || source.Length < Seed || disproportionateIndex)
+@@ -40 +52 @@
+-        int blocks = source.Length / 8;
++        int blocks = Landmarks(source.Length);
+@@ -43 +55 @@
+-            _index.Prepend(Bucket(source[(i * 8)..], BucketCount - 1), i);
++            _index.Prepend(Bucket(source[(i * Stride)..], BucketCount - 1), i);
+@@ -59 +71 @@
+-        if (tail.Length < 8) return default;
++        if (tail.Length < Seed) return default;
+@@ -66 +78 @@
+-            int position = index * 8;
++            int position = index * Stride;
+@@ -103 +115 @@
+-        if (tail.Length < 8) return;
++        if (tail.Length < Seed) return;
+@@ -108 +120 @@
+-            int position = index * 8;
++            int position = index * Stride;
+@@ -166 +178 @@
+-            int position = (block - 1) * 8;
++            int position = (block - 1) * Stride;
+@@ -187,0 +200,3 @@
++#if FAST_SEED16
++        x = System.Numerics.BitOperations.RotateLeft(x, 19) ^ BinaryPrimitives.ReadUInt64LittleEndian(seed[8..]);
++#endif
+--- a/src/VCDiffSharp/VCDiffSharp.csproj
++++ b/src/VCDiffSharp/VCDiffSharp.csproj
+@@ -7,0 +8,4 @@
++  <PropertyGroup>
++    <DefineConstants Condition="'$(FastSeedBytes)' == '16'">$(DefineConstants);FAST_SEED16</DefineConstants>
++    <DefineConstants Condition="'$(FastStrideBytes)' == '4'">$(DefineConstants);FAST_STRIDE4</DefineConstants>
++  </PropertyGroup>
