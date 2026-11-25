@@ -9,7 +9,7 @@ internal static class WindowEncoder
     private const int SourceSegmentSize = 64 << 20;
 
     internal static byte[]? Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte>? destination,
-        VcdiffEncodeMode mode, MemoryMode memoryMode, int compressionLevel = MatcherProfile.DefaultLevel)
+        VcdiffEncodeMode mode, MemoryMode memoryMode, int compressionLevel = MatcherProfile.DefaultLevel, bool optimize = false)
     {
         var profile = MatcherProfile.FromLevel(compressionLevel);
         // A single window knows its final size before writing. Only multi-window array results need aggregation.
@@ -35,7 +35,7 @@ internal static class WindowEncoder
             {
                 int length = Math.Min(target.Length - start, TargetWindowSize);
                 byte[]? result = EncodeWindow(in finder, in levelSource, segmentStart, target.Slice(start, length), start,
-                    destination, mode, memoryMode, profile);
+                    destination, mode, memoryMode, profile, segment, optimize);
                 if (destination == null) return result;
                 start += length;
             } while (start < target.Length && SegmentStart(source.Length, start) == segmentStart);
@@ -48,7 +48,7 @@ internal static class WindowEncoder
 
     private static byte[]? EncodeWindow(in SourceMatchFinder finder, in LevelSourceMatcher levelSource, int segmentOffset,
         ReadOnlySpan<byte> target, int targetOffset, IBufferWriter<byte>? destination, VcdiffEncodeMode mode,
-        MemoryMode memoryMode, MatcherProfile profile)
+        MemoryMode memoryMode, MatcherProfile profile, ReadOnlySpan<byte> segment, bool optimize)
     {
         Span<int> same = target.Length >= 128 && (mode != VcdiffEncodeMode.Fast || finder.SourceSegmentLength >= 128) ? stackalloc int[768] : [];
         var writer = new WindowWriter(segmentOffset, mode == VcdiffEncodeMode.Default ? levelSource.Length : finder.SourceSegmentLength,
@@ -61,6 +61,12 @@ internal static class WindowEncoder
                 LevelParser.Parse(in levelSource, target, targetOffset - segmentOffset, profile, memoryMode, stackalloc CopyMatch[16], ref writer);
             else
                 ParseExhaustive(in finder, target, memoryMode, ref writer);
+            if (optimize)
+            {
+                int sourceLength = mode == VcdiffEncodeMode.Default ? levelSource.Length : finder.SourceSegmentLength;
+                return WindowOptimizer.Finish(ref writer, segment[..sourceLength], segmentOffset,
+                    target, targetOffset == 0, destination);
+            }
             return writer.Finish(target, targetOffset == 0, destination);
         }
         finally

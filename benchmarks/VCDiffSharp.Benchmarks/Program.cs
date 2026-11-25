@@ -16,6 +16,17 @@ if (args is ["--levels", var levelSource, var levelTarget])
     return;
 }
 Console.WriteLine("Case,Search mode,Memory mode,Source B,Target B,Patch B,API,ns/op,Allocated B/op");
+if (args is ["--afterburner", var originalFile, var targetFile])
+{
+    var source = File.ReadAllBytes(originalFile);
+    var target = File.ReadAllBytes(targetFile);
+    foreach (var mode in Enum.GetValues<VcdiffEncodeMode>())
+    {
+        MeasureMode("ordinary", source, target, mode, MemoryMode.Default);
+        MeasureMode("afterburner", source, target, mode, MemoryMode.Default, optimize: true);
+    }
+    return;
+}
 if (args is ["--fast-only", var fastSource, var fastTarget])
 {
     var source = File.ReadAllBytes(fastSource);
@@ -130,22 +141,25 @@ static void Benchmark(string name, byte[] source, byte[] target)
 }
 
 static void MeasureMode(string name, byte[] source, byte[] target, VcdiffEncodeMode mode, MemoryMode memoryMode,
-    int warmupMilliseconds = 150)
+    int warmupMilliseconds = 150, bool optimize = false)
 {
-    byte[] reference = Vcdiff.Encode(source, target, mode, memoryMode);
+    byte[] EncodeArray() => optimize ? Vcdiff.EncodeOptimized(source, target, mode, memoryMode) :
+        Vcdiff.Encode(source, target, mode, memoryMode);
+    byte[] reference = EncodeArray();
     if (!Vcdiff.Decode(source, reference).AsSpan().SequenceEqual(target))
         throw new InvalidDataException("Round trip failed.");
     var writer = new ArrayBufferWriter<byte>(reference.Length);
     void EncodeInto()
     {
         writer.ResetWrittenCount();
-        Vcdiff.Encode(source, target, writer, mode, memoryMode);
+        if (optimize) Vcdiff.EncodeOptimized(source, target, writer, mode, memoryMode);
+        else Vcdiff.Encode(source, target, writer, mode, memoryMode);
     }
 
     EncodeInto();
     if (!writer.WrittenSpan.SequenceEqual(reference)) throw new InvalidDataException("Writer output differs.");
     Measure("writer", EncodeInto);
-    Measure("array", () => Vcdiff.Encode(source, target, mode, memoryMode));
+    Measure("array", () => EncodeArray());
 
     void Measure(string api, Action encode)
     {

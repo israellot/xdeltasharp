@@ -17,21 +17,25 @@ internal sealed class AddressCache
     }
 
     internal long ReadAddress(byte mode, long here, ref SectionReader addresses)
+        => ReadAddress(mode, here, ref addresses, _near, _same, ref _nextNear);
+
+    internal static long ReadAddress(byte mode, long here, ref SectionReader addresses, scoped Span<long> near,
+        scoped Span<long> same, ref int nextNear)
     {
         long address = mode switch
         {
             0 => addresses.ReadInteger(),
             1 => here - addresses.ReadInteger(),
-            <= 5 => AddNear(_near[mode - 2], addresses.ReadInteger()),
-            _ => _same[(mode - 6) * 256 + addresses.ReadByte()]
+            <= 5 => AddNear(near[mode - 2], addresses.ReadInteger()),
+            _ => same[(mode - 6) * 256 + addresses.ReadByte()]
         };
 
         if (address < 0 || address >= here)
             throw new InvalidDataException("COPY address must precede the current write position.");
 
-        _near[_nextNear] = address;
-        _nextNear = (_nextNear + 1) % _near.Length;
-        _same[address % _same.Length] = address;
+        near[nextNear] = address;
+        nextNear = (nextNear + 1) % near.Length;
+        same[(int)(address % same.Length)] = address;
         return address;
     }
 

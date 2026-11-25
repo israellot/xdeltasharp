@@ -68,6 +68,40 @@ public static class Vcdiff
         WindowEncoder.Encode(source, target, destination, VcdiffEncodeMode.Default, memoryMode, compressionLevel);
     }
 
+    /// <summary>Encodes and refines each window, keeping its smaller representation.</summary>
+    public static byte[] EncodeOptimized(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target,
+        VcdiffEncodeMode mode = VcdiffEncodeMode.Default, MemoryMode memoryMode = MemoryMode.Default)
+    {
+        ValidateEncodeModes(mode, memoryMode);
+        return WindowEncoder.Encode(source, target, null, mode, memoryMode, optimize: true)!;
+    }
+
+    /// <summary>Appends size-refined windows to a caller-provided buffer writer.</summary>
+    public static void EncodeOptimized(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
+        VcdiffEncodeMode mode = VcdiffEncodeMode.Default, MemoryMode memoryMode = MemoryMode.Default)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ValidateEncodeModes(mode, memoryMode);
+        WindowEncoder.Encode(source, target, destination, mode, memoryMode, optimize: true);
+    }
+
+    /// <summary>Encodes at the specified level and refines the selected window operations.</summary>
+    public static byte[] EncodeOptimized(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, int compressionLevel,
+        MemoryMode memoryMode = MemoryMode.Default)
+    {
+        ValidateMemoryMode(memoryMode);
+        return WindowEncoder.Encode(source, target, null, VcdiffEncodeMode.Default, memoryMode, compressionLevel, true)!;
+    }
+
+    /// <summary>Appends size-refined windows using the specified compression level.</summary>
+    public static void EncodeOptimized(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
+        int compressionLevel, MemoryMode memoryMode = MemoryMode.Default)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ValidateMemoryMode(memoryMode);
+        WindowEncoder.Encode(source, target, destination, VcdiffEncodeMode.Default, memoryMode, compressionLevel, true);
+    }
+
     private static void ValidateEncodeModes(VcdiffEncodeMode mode, MemoryMode memoryMode)
     {
         if (mode is not (VcdiffEncodeMode.Fast or VcdiffEncodeMode.Default or VcdiffEncodeMode.Exhaustive)) throw new ArgumentOutOfRangeException(nameof(mode));

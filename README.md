@@ -76,6 +76,17 @@ All encoders split targets into 8 MiB windows. Source indexes cover up to 64 MiB
 
 The writer packs adjacent instructions when the default table permits it and chooses among the standard address modes. It compares the complete window size with a single dictionary-free ADD, including the cost of declaring the source segment. Small windows use stack scratch and borrow the first literal span. The buffer-writer overload appends each completed window to the caller’s destination. The allocating overload creates an exact-sized result for single-window patches.
 
+## Optional operation pass
+
+`EncodeOptimized` runs an afterburner on each completed target window. It can extend a COPY or RUN through matching neighboring bytes, absorb redundant operations, and turn a short instruction into literals when that saves bytes. It also trims the source dictionary to the range used by source copies and rebases target-copy addresses.
+
+```csharp
+byte[] patch = Vcdiff.EncodeOptimized(source, target, VcdiffEncodeMode.Fast);
+Vcdiff.EncodeOptimized(source, target, destinationWriter, compressionLevel: 9);
+```
+
+The pass re-encodes its candidate with fresh address caches and opcode pairing. It compares complete window sizes, including headers and the literal-only fallback. On a tie or a larger candidate, it emits the original bytes. This bounds patch size by the ordinary encode for the same mode, level, and memory policy. It uses temporary storage for one window’s operations and spends additional encoding time. The decoder uses the usual VCDIFF format. [Measured size and time tradeoffs](benchmarks/Results/Window-afterburner-net8-arm64.md)
+
 ## Benchmarks
 
 Run the Release benchmark from the repository root.

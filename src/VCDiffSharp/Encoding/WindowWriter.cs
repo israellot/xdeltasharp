@@ -170,25 +170,39 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
         _nextNear = (_nextNear + 1) & 3;
     }
 
-    // Return the exact array for a single-window allocating call, or append directly to the sink.
-    internal byte[]? Finish(ReadOnlySpan<byte> target, bool firstWindow, IBufferWriter<byte>? sink)
+    internal readonly ReadOnlySpan<byte> Instructions => _instructions.Written;
+    internal readonly ReadOnlySpan<byte> Addresses => _addresses.Written;
+    private readonly int DataLength => _firstLiteral.Length + _data.Length;
+
+    // Includes the dictionary descriptor, section headers, and single-ADD fallback.
+    internal readonly int FramedSize(int targetLength) => Layout(targetLength).Length;
+
+    private readonly (int Length, int DeltaSize, bool Dictionary, bool LiteralOnly) Layout(int targetLength)
     {
         bool dictionary = sourceLength != 0 && _addresses.Length != 0;
-        int literalOpcodeSize = target.Length <= 17 ? 1 : 1 + WireInteger.Size(target.Length);
-        int dataLength = _firstLiteral.Length + _data.Length;
-        int deltaSize = DeltaSize(target.Length, dataLength, _instructions.Length, _addresses.Length);
+        int literalOpcodeSize = targetLength <= 17 ? 1 : 1 + WireInteger.Size(targetLength);
+        int dataLength = DataLength;
+        int deltaSize = DeltaSize(targetLength, dataLength, _instructions.Length, _addresses.Length);
         int length = 1 + WireInteger.Size(deltaSize) + deltaSize;
         if (dictionary) length += WireInteger.Size(sourceOffset) + WireInteger.Size(sourceLength);
 
-        int rawDelta = DeltaSize(target.Length, target.Length, literalOpcodeSize, 0);
+        int rawDelta = DeltaSize(targetLength, targetLength, literalOpcodeSize, 0);
         int rawLength = 1 + WireInteger.Size(rawDelta) + rawDelta;
-        bool literalOnly = !target.IsEmpty && rawLength <= length;
+        bool literalOnly = targetLength != 0 && rawLength <= length;
         if (literalOnly)
         {
             dictionary = false;
             length = rawLength;
             deltaSize = rawDelta;
         }
+        return (length, deltaSize, dictionary, literalOnly);
+    }
+
+    internal byte[]? Finish(ReadOnlySpan<byte> target, bool firstWindow, IBufferWriter<byte>? sink)
+    {
+        var (length, deltaSize, dictionary, literalOnly) = Layout(target.Length);
+        int literalOpcodeSize = target.Length <= 17 ? 1 : 1 + WireInteger.Size(target.Length);
+        int dataLength = DataLength;
         if (firstWindow) length += 5;
         byte[]? result = sink == null ? new byte[length] : null;
         Span<byte> output = result != null ? result : sink!.GetSpan(length);
