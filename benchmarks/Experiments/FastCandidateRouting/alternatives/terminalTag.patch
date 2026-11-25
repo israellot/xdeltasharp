@@ -1,0 +1,55 @@
+--- a/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
++++ b/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
+@@ -13,0 +14 @@
++    private readonly bool _terminalTagged;
+@@ -41,0 +43,7 @@
++        _terminalTagged = mode == VcdiffEncodeMode.Fast && blocks > ushort.MaxValue && blocks <= (1 << 23);
++        if (_terminalTagged)
++        {
++            for (int i = blocks - 1; i >= 0; i--)
++                _index.PrependSummary(Bucket(source[(i * 8)..], BucketCount - 1), i, source[i * 8]);
++            return;
++        }
+@@ -61,0 +70,3 @@
++        // Source segments are at most 64 MiB: all one-based landmark indices fit in 24 bits.
++        // For smaller untagged tables just test whether the original entry is nonzero.
++        if (_terminalTagged) return FindTagged(window, tail, probe, pendingStart, block);
+@@ -81,0 +93,23 @@
++    private CopyMatch FindTagged(ReadOnlySpan<byte> window, ReadOnlySpan<byte> tail, int probe, int pendingStart, int block)
++    {
++        int wanted = (tail[0] == 0 ? 1 : tail[0]) << 24;
++        CopyMatch best = default;
++        for (int hops = 0; block != 0; hops++)
++        {
++            int index = block & 0x7fffff;
++            int position = index * 8;
++            if ((block & unchecked((int)0xff000000)) == wanted && _source[position] == tail[0] && CanBeat(window, probe, pendingStart, position, best.Length))
++            {
++                var match = Extend(window, probe, pendingStart, position);
++                if (match.Length > best.Length)
++                {
++                    best = match;
++                    if (best.Length == window.Length - pendingStart) break;
++                }
++            }
++            if ((block & (1 << 23)) != 0 || hops == MaxCollisionHops) break;
++            block = _index.Entry(BucketCount + index);
++        }
++        return best;
++    }
++
+@@ -166 +200 @@
+-            int position = (block - 1) * 8;
++            int position = (_terminalTagged ? block & 0x7fffff : block - 1) * 8;
+--- a/src/VCDiffSharp/Encoding/MatchIndex.cs
++++ b/src/VCDiffSharp/Encoding/MatchIndex.cs
+@@ -60,0 +61,9 @@
++    // The high byte summarizes every first-byte class reachable from this link.
++    internal void PrependSummary(int bucket, int index, byte first)
++    {
++        int head = _large![bucket];
++        _large[BucketCount + index] = head;
++        int tag = (first == 0 ? 1 : first) << 24;
++        _large[bucket] = tag | (head == 0 ? 1 << 23 : 0) | index;
++    }
++

@@ -1,0 +1,63 @@
+--- a/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
++++ b/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
+@@ -13,0 +14,6 @@
++    private readonly ulong[]? _filter;
++    private const int Words = 8192;
++    private static int Triple(ReadOnlySpan<byte> data, int p)
++        => (int)(unchecked(((uint)data[p] | (uint)data[p + 1] << 8 | (uint)data[p + 2] << 16) * 2654435761u) >> 13);
++    private void Mark(int code, int bank) => _filter![bank + (code >> 6)] |= 1UL << code;
++    private bool Has(int code, int bank) => (_filter![bank + (code >> 6)] & (1UL << code)) != 0;
+@@ -39,0 +46,10 @@
++        if (mode == VcdiffEncodeMode.Fast && source.Length >= 4096)
++        {
++            _filter = System.Buffers.ArrayPool<ulong>.Shared.Rent(2 * Words);
++            _filter.AsSpan(0, 2 * Words).Clear();
++            for (int pos = 0; pos <= source.Length - 8; pos += 8)
++            {
++                Mark(Triple(source, pos), 0);
++                if (pos >= 2) Mark(Triple(source, pos - 2), Words);
++            }
++        }
+@@ -41,0 +58,6 @@
++        if (mode == VcdiffEncodeMode.Fast && blocks > ushort.MaxValue)
++        {
++            for (int i = blocks - 1; i >= 0; i--)
++                _index.PrependSummary(Bucket(source[(i * 8)..], BucketCount - 1), i, source[i * 8]);
++            return;
++        }
+@@ -59,0 +82,3 @@
++        if (_filter != null && !Has(Triple(window, probe), 0) &&
++            (probe - pendingStart < 2 || !Has(Triple(window, probe - 2), Words)))
++            return default;
+@@ -61,0 +87,3 @@
++        // Source segments are at most 64 MiB: all one-based landmark indices fit in 24 bits.
++        // For smaller untagged tables just test whether the original entry is nonzero.
++        int wanted = _source.Length / 8 > ushort.MaxValue ? (1 << (24 + (tail[0] & 7))) : 0xffffff;
+@@ -63 +91 @@
+-        for (int hops = 0; block != 0; hops++)
++        for (int hops = 0; (block & wanted) != 0; hops++)
+@@ -65 +93 @@
+-            int index = block - 1;
++            int index = (block & 0xffffff) - 1;
+@@ -164 +192 @@
+-            int block = _index.Entry(Bucket(sample, BucketCount - 1));
++            int block = _index.Entry(Bucket(sample, BucketCount - 1)) & 0xffffff;
+@@ -196 +224,5 @@
+-    public void Dispose() => _index.Dispose();
++    public void Dispose()
++    {
++        if (_filter != null) System.Buffers.ArrayPool<ulong>.Shared.Return(_filter);
++        _index.Dispose();
++    }
+--- a/src/VCDiffSharp/Encoding/MatchIndex.cs
++++ b/src/VCDiffSharp/Encoding/MatchIndex.cs
+@@ -60,0 +61,9 @@
++    // The high byte summarizes every first-byte class reachable from this link.
++    internal void PrependSummary(int bucket, int index, byte first)
++    {
++        int head = _large![bucket];
++        _large[BucketCount + index] = head;
++        int tag = (head & unchecked((int)0xff000000)) | (1 << (24 + (first & 7)));
++        _large[bucket] = tag | (index + 1);
++    }
++

@@ -1,0 +1,38 @@
+--- a/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
++++ b/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
+@@ -13,0 +14 @@
++    private readonly bool _exact;
+@@ -41,0 +43,12 @@
++        // Keep the normal chains if the existing table is too full for linear probing.
++        _exact = mode == VcdiffEncodeMode.Fast && source.Length >= 4096 && (long)blocks * 4 <= (long)BucketCount * 3;
++        if (_exact)
++        {
++            for (int i = blocks - 1; i >= 0; i--)
++            {
++                var data = source[(i * 8)..];
++                int slot = FindSlot(data);
++                _index.Prepend(slot, i);
++            }
++            return;
++        }
+@@ -60 +73 @@
+-        int bucket = Bucket(tail, BucketCount - 1);
++        int bucket = _exact ? FindSlot(tail) : Bucket(tail, BucketCount - 1);
+@@ -164 +177 @@
+-            int block = _index.Entry(Bucket(sample, BucketCount - 1));
++            int block = _index.Entry(_exact ? FindSlot(sample) : Bucket(sample, BucketCount - 1));
+@@ -184,0 +198,14 @@
++    private int FindSlot(ReadOnlySpan<byte> data)
++    {
++        int mask = BucketCount - 1;
++        int slot = Bucket(data, mask);
++        ulong key = BinaryPrimitives.ReadUInt64LittleEndian(data);
++        while (true)
++        {
++            int block = _index.Entry(slot);
++            if (block == 0 || BinaryPrimitives.ReadUInt64LittleEndian(_source[((block - 1) * 8)..]) == key)
++                return slot;
++            slot = (slot + 1) & mask;
++        }
++    }
++

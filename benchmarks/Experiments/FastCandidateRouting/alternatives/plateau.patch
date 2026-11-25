@@ -1,0 +1,9 @@
+--- a/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
++++ b/src/VCDiffSharp/Encoding/SourceMatchFinder.cs
+@@ -61,0 +62 @@
++        int lastImprovement = 0;
+@@ -71,0 +73 @@
++                    lastImprovement = hops;
+@@ -76 +78 @@
+-            if (hops == MaxCollisionHops) break;
++            if (hops == MaxCollisionHops || (best.Length >= 8 && hops - lastImprovement >= 16)) break;
