@@ -1,12 +1,13 @@
 # VCDiffSharp
 
-A .NET 8 library for decoding VCDIFF patches. It supports RFC 3284 version 0 with the default code table and uncompressed sections. The encoder is currently a scaffold.
+A .NET 8 library for creating and applying RFC 3284 version 0 patches with the default code table and uncompressed sections.
 
 ## Public API
 
 ```csharp
 using VCDiffSharp;
 
+byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast);
 byte[] restored = Vcdiff.Decode(source, patch, maxOutputBytes: 256 * 1024 * 1024);
 
 // When the caller already owns the output buffer:
@@ -18,7 +19,7 @@ long totalWritten = Vcdiff.Decode(sourceStream, patchStream, outputStream);
 
 The allocating overload reads the window lengths, checks the cumulative output limit, and allocates the target once. Set `maxOutputBytes` to the largest target your application accepts. The span overload writes windows in order and may leave partial output on failure.
 
-All overloads enforce a **64 MiB maximum decoded target window**, inclusive, matching [xdelta3’s default hard limit](https://github.com/jmacd/xdelta/blob/v3.2.2/xdelta3/xdelta3.h). Use `maxWindowBytes` to request a smaller limit. The limit applies independently to every window. The encoder design uses xdelta3’s **8 MiB default target window**.
+All decode overloads enforce a **64 MiB maximum decoded target window**, inclusive, matching [xdelta3’s default hard limit](https://github.com/jmacd/xdelta/blob/v3.2.2/xdelta3/xdelta3.h). Use `maxWindowBytes` to request a smaller limit. The limit applies independently to every window. The encoder uses xdelta3’s **8 MiB default target window**.
 
 The stream overload reads the patch sequentially and uses 64-bit file offsets and cumulative output counts. It buffers the current decoded window and its encoded sections (which must fit in one .NET byte array), and reads dictionary COPY ranges on demand. For external dictionaries, supply a readable, seekable source. For windows referencing earlier target output, open the destination for reading, writing, and seeking. Other windows can decode to a write-only stream. All offsets start at the streams’ initial positions, and the streams remain open. Use `Stream.Null` as the source for dictionary-free patches.
 
@@ -31,21 +32,32 @@ Malformed patches and output above `maxOutputBytes` raise `InvalidDataException`
 | Type | Responsibility |
 | --- | --- |
 | `Vcdiff` | Public entry points, file header, window sequence, and total output limit. |
-| `Encoding/WindowEncoder` | Compare source COPY, target COPY, RUN, and literal costs. Emit the selected operations and frame the window. |
+| `Encoding/WindowEncoder` | Select source segments and scan target windows for source matches and runs. |
+| `Encoding/WindowWriter` | Frame the window and write its data, instructions, and COPY addresses. |
 | `Encoding/SourceMatchFinder` | Search an indexed source segment. The encoder can reuse the index across windows that select that segment. |
-| `Encoding/TargetMatchFinder` | Search earlier positions in the current target window. Each window starts with an empty index. |
+| `Encoding/TargetMatchFinder` | Reserved for the planned Default mode. |
 | `Encoding/CopyMatch` | Carry a candidate’s read offset, target write offset, and length from either finder. |
 | `Decoding/WindowReader` | Parse file and window headers, validate the dictionary range, and bound the three section cursors. |
 | `Decoding/WindowDecoder` | Execute the data, instruction, and address sections against the selected dictionary and the target window being reconstructed. |
-| `Format/AddressCache` | Maintain the per-window NEAR and SAME caches shared by the encoding and decoding algorithms. |
+| `Format/AddressCache` | Resolve COPY addresses during decoding using per-window NEAR and SAME caches. |
 | `Format/DefaultCodeTable` | Describe the single and paired instructions represented by each of the 256 default opcodes. |
 
 Run `dotnet test -c Release` for the [RFC 3284](https://www.rfc-editor.org/rfc/rfc3284.html) vectors, malformed inputs, and [independent xdelta3 and open-vcdiff fixtures](tests/VCDiffSharp.Tests/Fixtures/README.md).
 
-## How the encoder finds a COPY
+## Fast encoding
 
-At each probe position, `WindowEncoder` asks both finders for a candidate. The **source finder** is the porting boundary for DeltaSharp’s `Hashtable64` index, its `Match` / `More` candidate walk in `DeltaCreate.EncodeMatches`, and `SpanHelper.MatchForward` / `MatchBackward`. The index samples the source every eight bytes. A hit can extend backwards as far as the first pending literal. Returning the target write offset lets the encoder shorten that pending ADD before emitting the COPY.
+`VcdiffEncodeMode.Fast` searches one source candidate per probe and recognizes runs of repeated bytes. Both mode-less Encode overloads currently use Fast. Specify Fast explicitly to keep that policy when the planned Default mode adds target matching.
 
-The **target finder** advances its index as the probe moves, including positions passed over by a previous COPY or RUN. Only offsets before the probe are eligible as read starts. Because the encoder already has the target window, it can compare through the probe to discover overlapping matches. For example, at offset 4 in `ABCDABCDABCD`, the finder can return `CopyMatch(ReadOffset: 0, WriteOffset: 4, Length: 8)`. The encoder can then emit ADD(4) followed by COPY(8).
+The source matcher uses DeltaSharp’s eight-byte landmarks and compact, one-based block indices. For a tiny target it can probe a four-byte seed directly in a small source or skip a disproportionately large source index. For indexed sources through 2,047 bytes, bucket heads fit inline. Larger tables rent 16- or 32-bit entries. A source index covers up to 64 MiB and serves consecutive 8 MiB target windows selecting the same segment. Matches can extend backward into pending literals.
 
-The finder that supplied the candidate determines its address space. A source COPY uses `ReadOffset` and a target COPY uses `SourceSegmentLength + ReadOffset`. The window encoder estimates savings against literal encoding, accounting for pending literals, opcode, size, and address bytes. It updates the address cache only when it commits a COPY. DeltaSharp’s fixed COPY threshold belongs to its original encoder and is omitted from the proposed finder contract.
+The writer packs adjacent instructions when the default table permits it and chooses among the standard address modes. It compares the complete window size with a single dictionary-free ADD, including the cost of declaring the source segment. Small windows use stack scratch and borrow the first literal span. The buffer-writer overload appends each completed window to the caller’s destination. The allocating overload creates an exact-sized result for single-window patches.
+
+## Benchmarks
+
+Run the Release benchmark from the repository root.
+
+```sh
+dotnet run -c Release --project benchmarks/VCDiffSharp.Benchmarks
+```
+
+Optionally append two file paths after `--` to include a source/target pair. The harness checks the reconstructed bytes and reports median time per call, managed allocations per call, and patch size for both public output paths. The writer measurement reuses a preallocated destination. The recorded file pair uses DeltaSharp’s Moby-Dick editions, pg15.txt and pg2701.txt. [Fast baseline on .NET 8 Arm64](benchmarks/Results/Fast-net8-arm64.csv)

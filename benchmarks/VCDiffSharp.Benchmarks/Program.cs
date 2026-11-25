@@ -1,0 +1,82 @@
+using System.Buffers;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using VCDiffSharp;
+
+// Use Release. Report the median of seven batches after warm-up, excluding fixture setup and validation.
+Console.Error.WriteLine($"{RuntimeInformation.FrameworkDescription}, {RuntimeInformation.ProcessArchitecture}");
+Console.WriteLine("Case,Source B,Target B,Patch B,API,ns/op,Allocated B/op");
+
+foreach (int size in new[] { 0, 4, 8, 16, 32, 64, 256, 2047, 2048, 524287, 524288 })
+{
+    byte[] source = Bytes(size);
+    byte[] target = (byte[])source.Clone();
+    if (size > 1) target[size / 2] ^= 1;
+    Benchmark("one edit", source, target);
+}
+
+Benchmark("tiny target", Bytes(1 << 20), "tiny target"u8.ToArray());
+Benchmark("short target", Bytes(1 << 20), Bytes(64));
+Benchmark("tiny source", Bytes(32), Bytes(1 << 20));
+Benchmark("source-free runs", [], new byte[1 << 20]);
+Benchmark("source-free ABCD", [], Enumerable.Repeat("ABCD"u8.ToArray(), 16384).SelectMany(x => x).ToArray());
+Benchmark("two windows", [], new byte[(8 << 20) + 1]);
+if (args.Length == 2)
+    Benchmark("file pair", File.ReadAllBytes(args[0]), File.ReadAllBytes(args[1]));
+else if (args.Length != 0)
+    throw new ArgumentException("Pass source and target paths together.");
+
+static byte[] Bytes(int length)
+{
+    var bytes = new byte[length];
+    new Random(731).NextBytes(bytes);
+    return bytes;
+}
+
+static void Benchmark(string name, byte[] source, byte[] target)
+{
+    byte[] reference = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast);
+    if (!Vcdiff.Decode(source, reference).AsSpan().SequenceEqual(target))
+        throw new InvalidDataException("Round trip failed.");
+    var writer = new ArrayBufferWriter<byte>(reference.Length);
+    void EncodeInto()
+    {
+        writer.ResetWrittenCount();
+        Vcdiff.Encode(source, target, writer, VcdiffEncodeMode.Fast);
+    }
+
+    EncodeInto();
+    if (!writer.WrittenSpan.SequenceEqual(reference)) throw new InvalidDataException("Writer output differs.");
+    Measure("writer", EncodeInto);
+    Measure("array", () => Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast));
+
+    void Measure(string api, Action encode)
+    {
+        int batch = 1;
+        while (true)
+        {
+            long start = Stopwatch.GetTimestamp();
+            for (int i = 0; i < batch; i++) encode();
+            if (Stopwatch.GetElapsedTime(start).TotalMilliseconds >= 15 || batch >= 1 << 20) break;
+            batch *= 2;
+        }
+        long warmup = Stopwatch.GetTimestamp();
+        do
+        {
+            for (int j = 0; j < batch; j++) encode();
+        } while (Stopwatch.GetElapsedTime(warmup).TotalMilliseconds < 150);
+        double[] timings = new double[7];
+        long allocated = 0;
+        for (int i = 0; i < timings.Length; i++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            long start = Stopwatch.GetTimestamp();
+            for (int j = 0; j < batch; j++) encode();
+            timings[i] = Stopwatch.GetElapsedTime(start).TotalNanoseconds / batch;
+            allocated += GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+        Array.Sort(timings);
+        Console.WriteLine(FormattableString.Invariant(
+            $"{name},{source.Length},{target.Length},{reference.Length},{api},{timings[3]:F1},{(double)allocated / batch / timings.Length:F1}"));
+    }
+}

@@ -1,5 +1,6 @@
 using System.Buffers;
 using VCDiffSharp.Decoding;
+using VCDiffSharp.Encoding;
 using VCDiffSharp.Format;
 
 namespace VCDiffSharp;
@@ -9,11 +10,27 @@ public static class Vcdiff
 {
     /// <summary>Creates a patch that reconstructs the target from the source.</summary>
     public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target)
-        => throw new NotImplementedException();
+        => Encode(source, target, VcdiffEncodeMode.Fast);
 
     /// <summary>Writes the encoded patch to a caller-provided buffer writer.</summary>
     public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination)
-        => throw new NotImplementedException();
+        => Encode(source, target, destination, VcdiffEncodeMode.Fast);
+
+    /// <summary>Creates a patch using the selected search mode.</summary>
+    public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, VcdiffEncodeMode mode)
+    {
+        if (mode != VcdiffEncodeMode.Fast) throw new ArgumentOutOfRangeException(nameof(mode));
+        return WindowEncoder.EncodeFast(source, target, null)!;
+    }
+
+    /// <summary>Appends a VCDIFF file, one framed window at a time.</summary>
+    public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
+        VcdiffEncodeMode mode)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (mode != VcdiffEncodeMode.Fast) throw new ArgumentOutOfRangeException(nameof(mode));
+        WindowEncoder.EncodeFast(source, target, destination);
+    }
 
     /// <summary>The largest decoded target window accepted by the library, matching xdelta3's 64 MiB limit.</summary>
     public const int MaxTargetWindowBytes = 64 * 1024 * 1024;

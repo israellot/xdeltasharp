@@ -11,6 +11,32 @@ internal static class DefaultCodeTable
 
     internal static (Instruction First, Instruction Second) Lookup(byte opcode) => Entries[opcode];
 
+    internal static bool TryPair(byte first, byte second, out byte opcode)
+    {
+        var a = Entries[first].First;
+        var b = Entries[second].First;
+        if (a.Kind == InstructionKind.Add && a.Size is >= 1 and <= 4 && b.Kind == InstructionKind.Copy)
+        {
+            if (b.Mode < 6 && b.Size is >= 4 and <= 6)
+            {
+                opcode = (byte)(163 + b.Mode * 12 + (a.Size - 1) * 3 + b.Size - 4);
+                return true;
+            }
+            if (b.Mode >= 6 && b.Size == 4)
+            {
+                opcode = (byte)(235 + (b.Mode - 6) * 4 + a.Size - 1);
+                return true;
+            }
+        }
+        if (a.Kind == InstructionKind.Copy && a.Size == 4 && b.Kind == InstructionKind.Add && b.Size == 1)
+        {
+            opcode = (byte)(247 + a.Mode);
+            return true;
+        }
+        opcode = 0;
+        return false;
+    }
+
     private static (Instruction, Instruction)[] Build()
     {
         var table = new (Instruction, Instruction)[256];
