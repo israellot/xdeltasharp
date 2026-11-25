@@ -5,6 +5,11 @@ using VCDiffSharp;
 
 // Use Release. Report the median of seven batches after warm-up, excluding fixture setup and validation.
 Console.Error.WriteLine($"{RuntimeInformation.FrameworkDescription}, {RuntimeInformation.ProcessArchitecture}");
+if (args is ["--profile-default", var sourcePath, var targetPath])
+{
+    ProfileDefault(File.ReadAllBytes(sourcePath), File.ReadAllBytes(targetPath));
+    return;
+}
 Console.WriteLine("Case,Search mode,Memory mode,Source B,Target B,Patch B,API,ns/op,Allocated B/op");
 
 foreach (int size in new[] { 0, 4, 8, 16, 32, 64, 256, 2047, 2048, 524287, 524288 })
@@ -44,6 +49,33 @@ static byte[] Bytes(int length)
     var bytes = new byte[length];
     new Random(731).NextBytes(bytes);
     return bytes;
+}
+
+static void ProfileDefault(byte[] source, byte[] target)
+{
+    byte[] expected = Vcdiff.Encode(source, target);
+    if (!Vcdiff.Decode(source, expected).AsSpan().SequenceEqual(target))
+        throw new InvalidDataException("Round trip failed.");
+    var writer = new ArrayBufferWriter<byte>(expected.Length);
+    void Encode()
+    {
+        writer.ResetWrittenCount();
+        Vcdiff.Encode(source, target, writer);
+    }
+
+    var warmup = Stopwatch.StartNew();
+    while (warmup.ElapsedMilliseconds < 1800) Encode();
+    double[] times = new double[32];
+    for (int batch = 0; batch < times.Length; batch++)
+    {
+        long start = Stopwatch.GetTimestamp();
+        for (int i = 0; i < 12; i++) Encode();
+        times[batch] = Stopwatch.GetElapsedTime(start).TotalMilliseconds / 12;
+    }
+    if (!writer.WrittenSpan.SequenceEqual(expected)) throw new InvalidDataException("Writer output differs.");
+    Array.Sort(times);
+    Console.WriteLine($"{expected.Length} bytes, SHA-256 {Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(expected))}");
+    Console.WriteLine($"Median {(times[15] + times[16]) / 2:F3} ms/encode");
 }
 
 static void Benchmark(string name, byte[] source, byte[] target)

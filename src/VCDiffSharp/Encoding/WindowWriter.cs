@@ -65,9 +65,27 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
 
     internal readonly int CopySavings(int writeOffset, int address, int length)
     {
-        int pending = writeOffset - _written;
         int mode = SelectAddress(address, writeOffset, out int value);
-        int cost = 1 + (mode >= 6 ? 1 : WireInteger.Size(value));
+        return CopySavingsForMode(writeOffset, length, mode, mode >= 6 ? 1 : WireInteger.Size(value));
+    }
+
+    // Even eliminating a five-byte ADD header still costs at least one address byte.
+    internal static int MinimumImprovingLength(int savings) => Math.Max(4, savings - 3);
+
+    // A one-byte SELF operand offers the lowest address cost and all possible opcode pairs.
+    // Its savings never decrease with length: an extra size byte costs at most one extra literal.
+    internal readonly int MinimumTargetCopyLength(int writeOffset, int savings, int available)
+    {
+        int length = MinimumImprovingLength(savings);
+        while (length <= available && CopySavingsForMode(writeOffset, length, 0, 1) <= savings)
+            length++;
+        return length;
+    }
+
+    private readonly int CopySavingsForMode(int writeOffset, int length, int mode, int addressBytes)
+    {
+        int pending = writeOffset - _written;
+        int cost = 1 + addressBytes;
         if (length is < 4 or > 18)
             cost += WireInteger.Size(length);
         else

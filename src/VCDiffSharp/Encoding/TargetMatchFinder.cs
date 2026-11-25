@@ -27,10 +27,12 @@ internal ref struct TargetMatchFinder(ReadOnlySpan<byte> window, Span<byte> scra
     {
         if (probe == 0 || _window.Length - probe < 4 || best.Savings >= upperBound) return;
         var tail = _window[probe..];
+        int required = WindowWriter.MinimumImprovingLength(best.Savings);
+        if (required > tail.Length) return;
         if (_window.Length <= DirectLimit)
         {
             for (int position = probe - 1; position >= 0 && best.Savings < upperBound; position--)
-                Consider(position, probe, dictionaryLength, in writer, ref best);
+                TryImprove(position, probe, dictionaryLength, in writer, ref best, required);
             return;
         }
 
@@ -47,32 +49,67 @@ internal ref struct TargetMatchFinder(ReadOnlySpan<byte> window, Span<byte> scra
         }
         int first = _index.Entry(Bucket(tail, mask));
         if (first == 0) return;
-        int entry = first;
-        do
+        // The oldest entry has first refusal on a tie. All other candidates are visited newest first.
+        int oldest = first - 1;
+        TryImprove(oldest, probe, dictionaryLength, in writer, ref best, required);
+        int chainHead = first;
+        int entry = Next(first);
+        if (entry == first || best.Savings >= upperBound) return;
+        if (best.Savings != 0)
+            required = writer.MinimumTargetCopyLength(probe, best.Savings, tail.Length);
+        if (required > tail.Length) return;
+
+        // Every improving match also contains the four bytes at 'shift'. Prefer that bucket
+        // when its most recent occurrence is further back, a cheap proxy for a rarer seed.
+        int shift = Math.Min(required - 4, 16);
+        if (shift > 0)
         {
-            int position = entry - 1;
-            Consider(position, probe, dictionaryLength, in writer, ref best);
-            if (best.Savings >= upperBound) break;
-            entry = _index.Entry(_index.BucketCount + position);
-        } while (entry != first);
+            int anchor = _index.Entry(Bucket(tail[shift..], mask));
+            int newestAnchor = anchor == 0 ? 0 : Next(anchor);
+            if (newestAnchor < entry)
+            {
+                // Overlapping matches can put the alternate seed beyond the indexed history.
+                for (int position = probe - 1; position >= probe - shift && position > oldest; position--)
+                {
+                    if (TryImprove(position, probe, dictionaryLength, in writer, ref best, required))
+                        required = writer.MinimumTargetCopyLength(probe, best.Savings, tail.Length);
+                    if (required > tail.Length || best.Savings >= upperBound) return;
+                }
+                chainHead = anchor;
+                entry = newestAnchor;
+            }
+            else
+                shift = 0;
+        }
+
+        while (entry - 1 - shift > oldest)
+        {
+            if (TryImprove(entry - 1 - shift, probe, dictionaryLength, in writer, ref best, required))
+                required = writer.MinimumTargetCopyLength(probe, best.Savings, tail.Length);
+            if (entry == chainHead || required > tail.Length || best.Savings >= upperBound) break;
+            entry = Next(entry);
+        }
     }
 
-    private readonly void Consider(int position, int probe, int dictionaryLength, scoped in WindowWriter writer,
-        scoped ref WindowChoice best)
+    private readonly int Next(int entry) => _index.Entry(_index.BucketCount + entry - 1);
+
+    private readonly bool TryImprove(int position, int probe, int dictionaryLength, scoped in WindowWriter writer,
+        scoped ref WindowChoice best, int required)
     {
         var earlier = _window[position..];
         var tail = _window[probe..];
-        if (BinaryPrimitives.ReadUInt32LittleEndian(earlier) != BinaryPrimitives.ReadUInt32LittleEndian(tail)) return;
-        // A COPY can save at most its length plus four bytes of ADD overhead. Check a required
-        // word first when a previous candidate already has substantial savings.
-        int required = best.Savings - 4;
-        if (required >= 8 && (required > tail.Length ||
+        if (BinaryPrimitives.ReadUInt32LittleEndian(earlier) != BinaryPrimitives.ReadUInt32LittleEndian(tail)) return false;
+        if (required > 4 &&
             BinaryPrimitives.ReadUInt32LittleEndian(earlier[(required - 4)..]) !=
-            BinaryPrimitives.ReadUInt32LittleEndian(tail[(required - 4)..]))) return;
-        // Comparing against the original input permits matches longer than the backward distance.
-        int length = 4 + earlier[4..].CommonPrefixLength(tail[4..]);
+            BinaryPrimitives.ReadUInt32LittleEndian(tail[(required - 4)..])) return false;
+        int known = required <= 8 ? required : 4;
+        int length = known + earlier[known..].CommonPrefixLength(tail[known..]);
+        if (length < required) return false;
         int address = dictionaryLength + position;
-        best.Consider(writer.CopySavings(probe, address, length), probe, length, address);
+        int savings = writer.CopySavings(probe, address, length);
+        if (savings <= best.Savings) return false;
+        best.Consider(savings, probe, length, address);
+        return true;
     }
 
     private static int Bucket(ReadOnlySpan<byte> seed, int mask)

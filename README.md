@@ -72,3 +72,5 @@ dotnet run -c Release --project benchmarks/VCDiffSharp.Benchmarks
 ```
 
 Optionally append two file paths after `--` to include a source/target pair. The harness checks the reconstructed bytes and reports median time per call, managed allocations per call, and patch size for both public output paths. The writer measurement reuses a preallocated destination. The recorded file pair uses DeltaSharp’s Moby-Dick editions, pg15.txt and pg2701.txt. [Default and Fast on .NET 8 Arm64](benchmarks/Results/Default-vs-Fast-net8-arm64.csv) · [Fast memory mode comparison](benchmarks/Results/Fast-memory-modes-net8-arm64.csv) · [Original collision-chain baseline](benchmarks/Results/Fast-collision-chains-net8-arm64.csv) · [Earlier single-candidate baseline](benchmarks/Results/Fast-net8-arm64.csv)
+
+The [Moby-Dick encoder profile](benchmarks/Results/MobyDick-Default-profile.md) compares Default with xdelta3 level 3 and includes the focused profiling command.

@@ -119,7 +119,7 @@ internal readonly ref struct SourceMatchFinder
         scoped in WindowWriter writer, scoped ref WindowChoice best)
     {
         var match = Extend(window, probe, pendingStart, position);
-        if (match.Length < 4) return;
+        if (match.Length < WindowWriter.MinimumImprovingLength(best.Savings)) return;
         int savings = writer.CopySavings(match.WriteOffset, match.ReadOffset, match.Length);
         best.Consider(savings, match.WriteOffset, match.Length, match.ReadOffset);
     }
