@@ -21,6 +21,15 @@ Benchmark("tiny source", Bytes(32), Bytes(1 << 20));
 Benchmark("source-free runs", [], new byte[1 << 20]);
 Benchmark("source-free ABCD", [], Enumerable.Repeat("ABCD"u8.ToArray(), 16384).SelectMany(x => x).ToArray());
 Benchmark("two windows", [], new byte[(8 << 20) + 1]);
+// Reverse distinct 32-byte records that all start with the same indexed landmark.
+byte[] records = Bytes(256 * 32);
+byte[] reversed = new byte[records.Length];
+for (int offset = 0; offset < records.Length; offset += 32)
+{
+    "landmark"u8.CopyTo(records.AsSpan(offset));
+    records.AsSpan(offset, 32).CopyTo(reversed.AsSpan(records.Length - offset - 32));
+}
+Benchmark("reordered duplicate seeds", records, reversed);
 if (args.Length == 2)
     Benchmark("file pair", File.ReadAllBytes(args[0]), File.ReadAllBytes(args[1]));
 else if (args.Length != 0)

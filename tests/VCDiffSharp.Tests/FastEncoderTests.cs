@@ -63,19 +63,67 @@ public class FastEncoderTests
         AssertPatch(source, target, Vcdiff.Encode(source, target));
     }
 
-    [Fact]
-    public void FastUsesOnlyTheFirstLandmarkForADuplicateSeed()
+    [Theory]
+    [InlineData(1024)]
+    [InlineData(2048)]
+    [InlineData(524288)]
+    public void LaterDuplicateSeedCanWinAtEveryIndexWidth(int sourceLength)
     {
-        byte[] source = Bytes(256);
+        byte[] source = Bytes(sourceLength);
         source.AsSpan(0, 8).CopyTo(source.AsSpan(128));
-        byte[] target = source[128..192];
+        byte[] target = source[128..392];
         byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast);
         AssertDecodes(source, patch, target);
         var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
         Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
-        // The first seed also occurs at 128, where the entire target would match.
-        Assert.Equal(0, window.Addresses[0]);
-        Assert.Equal((byte)8, DefaultCodeTable.Lookup(window.Instructions[0]).First.Size);
+        Assert.Equal(Integer(128), window.Addresses.ToArray());
+        byte[] instructions = [19, .. Integer(target.Length)];
+        Assert.Equal(instructions, window.Instructions.ToArray());
+    }
+
+    [Theory]
+    [InlineData(256, 64)]
+    [InlineData(257, 8)]
+    public void SearchStopsAfter256LinksFromTheBucketHead(int winningHop, int expectedLength)
+    {
+        byte[] target = Bytes(64);
+        byte[] source = new byte[winningHop * 8 + target.Length];
+        for (int offset = 0; offset < winningHop * 8; offset += 8)
+            target.AsSpan(0, 8).CopyTo(source.AsSpan(offset));
+        target.CopyTo(source, winningHop * 8);
+
+        using var finder = new SourceMatchFinder(source, target.Length);
+        var match = finder.FindMatch(target, 0, 0);
+        Assert.Equal(expectedLength, match.Length);
+        Assert.Equal(expectedLength == target.Length ? winningHop * 8 : 0, match.ReadOffset);
+    }
+
+    [Fact]
+    public void UnequalSeedsInTheSameBucketDoNotHideALaterMatch()
+    {
+        byte[] source = Bytes(128);
+        // Little-endian seeds 143 and 0 both hash to byte-table bucket zero.
+        source.AsSpan(0, 8).Clear();
+        source[0] = 143;
+        source.AsSpan(32, 8).Clear();
+        byte[] target = source[32..96];
+        using var finder = new SourceMatchFinder(source, target.Length);
+        Assert.Equal(new CopyMatch(32, 0, 64), finder.FindMatch(target, 0, 0));
+    }
+
+    [Fact]
+    public void RanksCandidatesIncludingExtensionIntoPendingLiterals()
+    {
+        byte[] target = Bytes(64);
+        byte[] source = new byte[128];
+        target.AsSpan(8, 10).CopyTo(source.AsSpan(32));
+        source[31] = (byte)~target[7];
+        source[42] = (byte)~target[18];
+        target.AsSpan(0, 16).CopyTo(source.AsSpan(88));
+        source[104] = (byte)~target[16];
+        using var finder = new SourceMatchFinder(source, target.Length);
+        Assert.Equal(new CopyMatch(91, 3, 13), finder.FindMatch(target, probe: 8, pendingStart: 3));
+        Assert.Equal(new CopyMatch(32, 8, 10), finder.FindMatch(target, probe: 8, pendingStart: 8));
     }
 
     [Theory]
@@ -182,11 +230,13 @@ public class FastEncoderTests
         }
     }
 
-    [Fact]
-    public void SmallCopyEncodingOnlyAllocatesTheReturnedArray()
+    [Theory]
+    [InlineData(16)]
+    [InlineData(64)]
+    public void SmallCopyEncodingOnlyAllocatesTheReturnedArray(int copyLength)
     {
         byte[] source = Bytes(128);
-        byte[] target = [21, .. source[8..24], 42];
+        byte[] target = [21, .. source.AsSpan(8, copyLength), 42];
         var sink = new ArrayBufferWriter<byte>(128);
         byte[] expected = Vcdiff.Encode(source, target);
         Vcdiff.Encode(source, target, sink);

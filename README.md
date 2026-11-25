@@ -46,9 +46,9 @@ Run `dotnet test -c Release` for the [RFC 3284](https://www.rfc-editor.org/rfc/r
 
 ## Fast encoding
 
-`VcdiffEncodeMode.Fast` searches one source candidate per probe and recognizes runs of repeated bytes. Both mode-less Encode overloads currently use Fast. Specify Fast explicitly to keep that policy when the planned Default mode adds target matching.
+`VcdiffEncodeMode.Fast` checks the source bucket head and follows up to 256 collision links per indexed probe. It keeps the longest match, including backward extension into pending literals, and keeps the first matching landmark on ties. It also recognizes runs of repeated bytes. Both mode-less Encode overloads currently use Fast. Specify Fast explicitly to keep that policy when the planned Default mode adds target matching.
 
-The source matcher uses DeltaSharp’s eight-byte landmarks and compact, one-based block indices. For a tiny target it can probe a four-byte seed directly in a small source or skip a disproportionately large source index. For indexed sources through 2,047 bytes, bucket heads fit inline. Larger tables rent 16- or 32-bit entries. A source index covers up to 64 MiB and serves consecutive 8 MiB target windows selecting the same segment. Matches can extend backward into pending literals.
+The source matcher uses DeltaSharp’s eight-byte landmarks and compact, one-based block indices. For a tiny target it can probe a four-byte seed directly in a small source or skip a disproportionately large source index. For indexed sources through 2,047 bytes, bucket heads and collision links fit inline. Larger tables store both in a single rental with 16- or 32-bit entries. A source index covers up to 64 MiB and serves consecutive 8 MiB target windows selecting the same segment. Matches can extend backward into pending literals.
 
 The writer packs adjacent instructions when the default table permits it and chooses among the standard address modes. It compares the complete window size with a single dictionary-free ADD, including the cost of declaring the source segment. Small windows use stack scratch and borrow the first literal span. The buffer-writer overload appends each completed window to the caller’s destination. The allocating overload creates an exact-sized result for single-window patches.
 
@@ -60,4 +60,4 @@ Run the Release benchmark from the repository root.
 dotnet run -c Release --project benchmarks/VCDiffSharp.Benchmarks
 ```
 
-Optionally append two file paths after `--` to include a source/target pair. The harness checks the reconstructed bytes and reports median time per call, managed allocations per call, and patch size for both public output paths. The writer measurement reuses a preallocated destination. The recorded file pair uses DeltaSharp’s Moby-Dick editions, pg15.txt and pg2701.txt. [Fast baseline on .NET 8 Arm64](benchmarks/Results/Fast-net8-arm64.csv)
+Optionally append two file paths after `--` to include a source/target pair. The harness checks the reconstructed bytes and reports median time per call, managed allocations per call, and patch size for both public output paths. The writer measurement reuses a preallocated destination. The recorded file pair uses DeltaSharp’s Moby-Dick editions, pg15.txt and pg2701.txt. [Fast with collision chains on .NET 8 Arm64](benchmarks/Results/Fast-collision-chains-net8-arm64.csv) · [Earlier single-candidate baseline](benchmarks/Results/Fast-net8-arm64.csv)

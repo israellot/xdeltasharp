@@ -1,0 +1,39 @@
+Case,Source B,Target B,Patch B,API,ns/op,Allocated B/op
+one edit,0,0,12,writer,46.9,0.0
+one edit,0,0,12,array,48.6,40.0
+one edit,4,4,17,writer,54.3,0.0
+one edit,4,4,17,array,60.3,48.0
+one edit,8,8,21,writer,74.2,0.0
+one edit,8,8,21,array,82.9,48.0
+one edit,16,16,20,writer,104.6,0.0
+one edit,16,16,20,array,109.6,48.0
+one edit,32,32,20,writer,106.0,0.0
+one edit,32,32,20,array,111.0,48.0
+one edit,64,64,22,writer,141.7,0.0
+one edit,64,64,22,array,146.9,48.0
+one edit,256,256,26,writer,290.8,0.0
+one edit,256,256,26,array,302.7,56.0
+one edit,2047,2047,27,writer,807.9,0.0
+one edit,2047,2047,27,array,823.3,56.0
+one edit,2048,2048,27,writer,909.8,0.0
+one edit,2048,2048,27,array,903.4,56.0
+one edit,524287,524287,32,writer,177645.3,0.0
+one edit,524287,524287,32,array,180133.6,56.0
+one edit,524288,524288,32,writer,183333.6,0.0
+one edit,524288,524288,32,array,183408.6,56.0
+tiny target,1048576,11,24,writer,69.1,0.0
+tiny target,1048576,11,24,array,72.4,48.0
+short target,1048576,64,78,writer,241.4,0.0
+short target,1048576,64,78,array,248.7,104.0
+tiny source,32,1048576,1048571,writer,5271000.0,0.0
+tiny source,32,1048576,1048571,array,5319225.0,1048600.0
+source-free runs,0,1048576,19,writer,17597.0,0.0
+source-free runs,0,1048576,19,array,19531.0,48.0
+source-free ABCD,0,65536,65558,writer,194181.2,0.0
+source-free ABCD,0,65536,65558,array,195051.6,65584.0
+two windows,0,8388609,30,writer,139229.7,0.0
+two windows,0,8388609,30,array,138216.4,368.0
+reordered duplicate seeds,8192,8192,1037,writer,12972.0,0.0
+reordered duplicate seeds,8192,8192,1037,array,13010.9,1064.0
+file pair,1253951,1253974,34569,writer,1304093.8,0.0
+file pair,1253951,1253974,34569,array,1256268.8,34600.0

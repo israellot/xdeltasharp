@@ -6,14 +6,17 @@ using System.Runtime.CompilerServices;
 
 namespace VCDiffSharp.Encoding;
 
-/// <summary>Fast's source index stores the first eight-byte landmark in each bucket.</summary>
+/// <summary>Indexes eight-byte source landmarks with compact, bounded collision chains.</summary>
 internal readonly ref struct SourceMatchFinder
 {
+    private const int MaxCollisionHops = 256;
+
     [InlineArray(256)]
-    private struct ByteHeads { private byte _first; }
+    private struct ByteEntries { private byte _first; }
 
     private readonly ReadOnlySpan<byte> _source;
-    private readonly ByteHeads _small;
+    private readonly ByteEntries _heads;
+    private readonly ByteEntries _links;
     private readonly ushort[]? _medium;
     private readonly int[]? _large;
     private readonly int _mask;
@@ -40,24 +43,37 @@ internal readonly ref struct SourceMatchFinder
         _mask = buckets - 1;
         if (blocks > ushort.MaxValue)
         {
-            _large = ArrayPool<int>.Shared.Rent(buckets);
+            _large = ArrayPool<int>.Shared.Rent(buckets + blocks);
             _large.AsSpan(0, buckets).Clear();
         }
         else if (blocks > byte.MaxValue)
         {
-            _medium = ArrayPool<ushort>.Shared.Rent(buckets);
+            _medium = ArrayPool<ushort>.Shared.Rent(buckets + blocks);
             _medium.AsSpan(0, buckets).Clear();
         }
         else
             _mask = 255;
 
-        // One-based block numbers reserve zero for an empty bucket.
+        // Heads precede links in pooled storage. Every link is overwritten during construction.
+        // Prepending in reverse source order gives the earliest landmark precedence on ties.
         for (int i = blocks - 1; i >= 0; i--)
         {
             int bucket = Bucket(source.Slice(i * 8), _mask);
-            if (_large != null) _large[bucket] = i + 1;
-            else if (_medium != null) _medium[bucket] = (ushort)(i + 1);
-            else _small[bucket] = (byte)(i + 1);
+            if (_large != null)
+            {
+                _large[buckets + i] = _large[bucket];
+                _large[bucket] = i + 1;
+            }
+            else if (_medium != null)
+            {
+                _medium[buckets + i] = _medium[bucket];
+                _medium[bucket] = (ushort)(i + 1);
+            }
+            else
+            {
+                _links[i] = _heads[bucket];
+                _heads[bucket] = (byte)(i + 1);
+            }
         }
     }
 
@@ -67,24 +83,40 @@ internal readonly ref struct SourceMatchFinder
         if (_source.IsEmpty)
             return default;
 
-        int position;
         if (_direct)
         {
             if (tail.Length < 4) return default;
-            position = _source.IndexOf(tail[..4]);
-            if (position < 0) return default;
-        }
-        else
-        {
-            if (tail.Length < 8) return default;
-            int bucket = Bucket(tail, _mask);
-            int block = _large != null ? _large[bucket] : _medium != null ? _medium[bucket] : _small[bucket];
-            if (block == 0) return default;
-            position = (block - 1) * 8;
+            int position = _source.IndexOf(tail[..4]);
+            return position < 0 ? default : Extend(window, probe, pendingStart, position);
         }
 
-        int forward = tail.CommonPrefixLength(_source[position..]);
-        if (forward == 0) return default;
+        if (tail.Length < 8) return default;
+        int bucket = Bucket(tail, _mask);
+        int block = _large != null ? _large[bucket] : _medium != null ? _medium[bucket] : _heads[bucket];
+        CopyMatch best = default;
+        for (int hops = 0; block != 0; hops++)
+        {
+            int index = block - 1;
+            int position = index * 8;
+            if (_source[position] == tail[0])
+            {
+                var match = Extend(window, probe, pendingStart, position);
+                if (match.Length > best.Length)
+                {
+                    best = match;
+                    if (best.Length == window.Length - pendingStart) break;
+                }
+            }
+            if (hops == MaxCollisionHops) break;
+            int slot = _mask + 1 + index;
+            block = _large != null ? _large[slot] : _medium != null ? _medium[slot] : _links[index];
+        }
+        return best;
+    }
+
+    private CopyMatch Extend(ReadOnlySpan<byte> window, int probe, int pendingStart, int position)
+    {
+        int forward = window[probe..].CommonPrefixLength(_source[position..]);
         int backward = 0;
         int limit = Math.Min(position, probe - pendingStart);
         while (backward < limit && _source[position - backward - 1] == window[probe - backward - 1])
