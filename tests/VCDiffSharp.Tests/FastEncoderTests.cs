@@ -82,9 +82,11 @@ public class FastEncoderTests
     }
 
     [Theory]
-    [InlineData(256, 64)]
-    [InlineData(257, 8)]
-    public void SearchStopsAfter256LinksFromTheBucketHead(int winningHop, int expectedLength)
+    [InlineData(256, 64, MemoryMode.Default)]
+    [InlineData(257, 8, MemoryMode.Default)]
+    [InlineData(256, 64, MemoryMode.LessMemory)]
+    [InlineData(257, 8, MemoryMode.LessMemory)]
+    public void SearchStopsAfter256LinksFromTheBucketHead(int winningHop, int expectedLength, MemoryMode mode)
     {
         byte[] target = Bytes(64);
         byte[] source = new byte[winningHop * 8 + target.Length];
@@ -92,7 +94,7 @@ public class FastEncoderTests
             target.AsSpan(0, 8).CopyTo(source.AsSpan(offset));
         target.CopyTo(source, winningHop * 8);
 
-        using var finder = new SourceMatchFinder(source, target.Length);
+        using var finder = new SourceMatchFinder(source, target.Length, mode, Span<byte>.Empty);
         var match = finder.FindMatch(target, 0, 0);
         Assert.Equal(expectedLength, match.Length);
         Assert.Equal(expectedLength == target.Length ? winningHop * 8 : 0, match.ReadOffset);
@@ -107,7 +109,7 @@ public class FastEncoderTests
         source[0] = 143;
         source.AsSpan(32, 8).Clear();
         byte[] target = source[32..96];
-        using var finder = new SourceMatchFinder(source, target.Length);
+        using var finder = new SourceMatchFinder(source, target.Length, MemoryMode.Default, stackalloc byte[768]);
         Assert.Equal(new CopyMatch(32, 0, 64), finder.FindMatch(target, 0, 0));
     }
 
@@ -121,7 +123,7 @@ public class FastEncoderTests
         source[42] = (byte)~target[18];
         target.AsSpan(0, 16).CopyTo(source.AsSpan(88));
         source[104] = (byte)~target[16];
-        using var finder = new SourceMatchFinder(source, target.Length);
+        using var finder = new SourceMatchFinder(source, target.Length, MemoryMode.Default, stackalloc byte[768]);
         Assert.Equal(new CopyMatch(91, 3, 13), finder.FindMatch(target, probe: 8, pendingStart: 3));
         Assert.Equal(new CopyMatch(32, 8, 10), finder.FindMatch(target, probe: 8, pendingStart: 8));
     }
@@ -231,24 +233,26 @@ public class FastEncoderTests
     }
 
     [Theory]
-    [InlineData(16)]
-    [InlineData(64)]
-    public void SmallCopyEncodingOnlyAllocatesTheReturnedArray(int copyLength)
+    [InlineData(16, MemoryMode.Default)]
+    [InlineData(64, MemoryMode.Default)]
+    [InlineData(16, MemoryMode.LessMemory)]
+    [InlineData(64, MemoryMode.LessMemory)]
+    public void SmallCopyEncodingOnlyAllocatesTheReturnedArray(int copyLength, MemoryMode memoryMode)
     {
         byte[] source = Bytes(128);
         byte[] target = [21, .. source.AsSpan(8, copyLength), 42];
         var sink = new ArrayBufferWriter<byte>(128);
-        byte[] expected = Vcdiff.Encode(source, target);
-        Vcdiff.Encode(source, target, sink);
+        byte[] expected = Vcdiff.Encode(source, target, memoryMode);
+        Vcdiff.Encode(source, target, sink, memoryMode);
         long start = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++)
         {
             sink.ResetWrittenCount();
-            Vcdiff.Encode(source, target, sink);
+            Vcdiff.Encode(source, target, sink, memoryMode);
         }
         long writerBytes = GC.GetAllocatedBytesForCurrentThread() - start;
         start = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 100; i++) GC.KeepAlive(Vcdiff.Encode(source, target));
+        for (int i = 0; i < 100; i++) GC.KeepAlive(Vcdiff.Encode(source, target, memoryMode));
         long allocatingBytes = GC.GetAllocatedBytesForCurrentThread() - start;
         start = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++) GC.KeepAlive(new byte[expected.Length]);
@@ -264,8 +268,63 @@ public class FastEncoderTests
         var sink = new ArrayBufferWriter<byte>();
         Assert.Throws<ArgumentOutOfRangeException>(() => Vcdiff.Encode([], [], (VcdiffEncodeMode)100));
         Assert.Throws<ArgumentOutOfRangeException>(() => Vcdiff.Encode([], [], sink, (VcdiffEncodeMode)100));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Vcdiff.Encode([], [], (MemoryMode)100));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Vcdiff.Encode([], [], sink, (MemoryMode)100));
         Assert.Throws<ArgumentNullException>(() => Vcdiff.Encode([], [], null!));
         Assert.Equal(0, sink.WrittenCount);
+    }
+
+    [Theory]
+    [InlineData(7, 0)]
+    [InlineData(8, 1)]
+    [InlineData(79, 16)]
+    [InlineData(2047, 256)]
+    [InlineData(2048, 256)]
+    [InlineData(2056, 512)]
+    [InlineData(524287, 65536)]
+    [InlineData(524288, 65536)]
+    public void BucketCountScalesAcrossEntryWidths(int sourceLength, int roundedBlocks)
+    {
+        byte[] source = Bytes(sourceLength);
+        const int targetLength = 300;
+        foreach (var mode in new[] { MemoryMode.Default, MemoryMode.LessMemory })
+        {
+            int buckets = mode == MemoryMode.Default ? 2 * roundedBlocks : roundedBlocks;
+            int scratch = SourceMatchFinder.SmallTableSize(sourceLength, targetLength, mode);
+            Assert.Equal(sourceLength / 8 <= byte.MaxValue ? buckets + sourceLength / 8 : 0, scratch);
+            using var finder = new SourceMatchFinder(source, targetLength, mode, new byte[scratch]);
+            Assert.Equal(buckets, finder.BucketCount);
+        }
+    }
+
+    [Fact]
+    public void MemoryModeControlsBothOutputPathsAndDefaultsToTheLargerTable()
+    {
+        // Seeds 1164 and 0 have the same low 9 hash bits and different tenth bits.
+        // With 512 buckets the zero seed is behind 257 collisions. With 1024 it is at the head.
+        byte[] source = new byte[4096];
+        for (int block = 0; block < 257; block++)
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(source.AsSpan(8 * block), 1164);
+        byte[] target = Bytes(64);
+        target.AsSpan(0, 8).Clear();
+        target.CopyTo(source, 257 * 8);
+
+        var larger = Vcdiff.Encode(source, target, MemoryMode.Default);
+        var smaller = Vcdiff.Encode(source, target, MemoryMode.LessMemory);
+        Assert.True(larger.Length < smaller.Length);
+        Assert.Equal(larger, Vcdiff.Encode(source, target));
+        Assert.Equal(larger, Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast));
+        AssertDecodes(source, larger, target);
+        AssertDecodes(source, smaller, target);
+        var sink = new ArrayBufferWriter<byte>();
+        Vcdiff.Encode(source, target, sink);
+        Assert.Equal(larger, sink.WrittenSpan.ToArray());
+        sink.ResetWrittenCount();
+        Vcdiff.Encode(source, target, sink, memoryMode: MemoryMode.LessMemory);
+        Assert.Equal(smaller, sink.WrittenSpan.ToArray());
+        sink.ResetWrittenCount();
+        Vcdiff.Encode(source, target, sink, VcdiffEncodeMode.Fast, MemoryMode.LessMemory);
+        Assert.Equal(Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast, MemoryMode.LessMemory), sink.WrittenSpan.ToArray());
     }
 
     private static byte[] Bytes(int length)

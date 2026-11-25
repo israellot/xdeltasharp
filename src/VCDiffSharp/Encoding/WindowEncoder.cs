@@ -7,7 +7,8 @@ internal static class WindowEncoder
     internal const int TargetWindowSize = 8 << 20;
     private const int SourceSegmentSize = 64 << 20;
 
-    internal static byte[]? EncodeFast(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte>? destination)
+    internal static byte[]? EncodeFast(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte>? destination,
+        MemoryMode memoryMode)
     {
         // A single window knows its final size before writing. Only multi-window array results need aggregation.
         ArrayBufferWriter<byte>? collected = null;
@@ -16,10 +17,12 @@ internal static class WindowEncoder
 
         int start = 0;
         int segmentLength = Math.Min(source.Length, SourceSegmentSize);
+        Span<byte> smallTable = stackalloc byte[SourceMatchFinder.SmallTableSize(segmentLength, target.Length, memoryMode)];
         do
         {
             int segmentStart = SegmentStart(source.Length, start);
-            using var finder = new SourceMatchFinder(source.Slice(segmentStart, segmentLength), target.Length - start);
+            using var finder = new SourceMatchFinder(source.Slice(segmentStart, segmentLength), target.Length - start,
+                memoryMode, smallTable);
             do
             {
                 int length = Math.Min(target.Length - start, TargetWindowSize);

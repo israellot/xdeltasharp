@@ -18,18 +18,44 @@ public static class Vcdiff
 
     /// <summary>Creates a patch using the selected search mode.</summary>
     public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, VcdiffEncodeMode mode)
+        => Encode(source, target, mode, MemoryMode.Default);
+
+    /// <summary>Creates a patch using the specified source-index memory policy.</summary>
+    public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, MemoryMode memoryMode)
+        => Encode(source, target, VcdiffEncodeMode.Fast, memoryMode);
+
+    /// <summary>Creates a patch using the selected search and memory policies.</summary>
+    public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, VcdiffEncodeMode mode,
+        MemoryMode memoryMode)
     {
-        if (mode != VcdiffEncodeMode.Fast) throw new ArgumentOutOfRangeException(nameof(mode));
-        return WindowEncoder.EncodeFast(source, target, null)!;
+        ValidateEncodeModes(mode, memoryMode);
+        return WindowEncoder.EncodeFast(source, target, null, memoryMode)!;
     }
 
     /// <summary>Appends a VCDIFF file, one framed window at a time.</summary>
     public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
         VcdiffEncodeMode mode)
+        => Encode(source, target, destination, mode, MemoryMode.Default);
+
+    /// <summary>Appends a patch using the specified source-index memory policy.</summary>
+    public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
+        MemoryMode memoryMode)
+        => Encode(source, target, destination, VcdiffEncodeMode.Fast, memoryMode);
+
+    /// <summary>Appends a patch using the selected search and memory policies.</summary>
+    public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
+        VcdiffEncodeMode mode, MemoryMode memoryMode)
     {
         ArgumentNullException.ThrowIfNull(destination);
+        ValidateEncodeModes(mode, memoryMode);
+        WindowEncoder.EncodeFast(source, target, destination, memoryMode);
+    }
+
+    private static void ValidateEncodeModes(VcdiffEncodeMode mode, MemoryMode memoryMode)
+    {
         if (mode != VcdiffEncodeMode.Fast) throw new ArgumentOutOfRangeException(nameof(mode));
-        WindowEncoder.EncodeFast(source, target, destination);
+        if (memoryMode is not (MemoryMode.Default or MemoryMode.LessMemory))
+            throw new ArgumentOutOfRangeException(nameof(memoryMode));
     }
 
     /// <summary>The largest decoded target window accepted by the library, matching xdelta3's 64 MiB limit.</summary>
