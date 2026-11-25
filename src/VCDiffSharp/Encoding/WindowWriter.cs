@@ -29,7 +29,7 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
             _firstLiteral = bytes;
         else
             _data.Append(bytes);
-        Instruction(bytes.Length <= 17 ? (byte)(1 + bytes.Length) : (byte)1, bytes.Length, bytes.Length > 17);
+        Instruction(AddOpcode(bytes.Length), bytes.Length, bytes.Length > 17);
     }
 
     internal void Run(byte value, int length)
@@ -40,10 +40,56 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
 
     internal void Copy(int address, int length)
     {
-        int mode = WriteAddress(address);
+        int mode = SelectAddress(address, _written, out int value);
+        CommitAddress(address, mode, value);
         bool fixedSize = length is >= 4 and <= 18;
-        byte opcode = (byte)(19 + 16 * mode + (fixedSize ? length - 3 : 0));
-        Instruction(opcode, length, !fixedSize);
+        Instruction(CopyOpcode(mode, length), length, !fixedSize);
+    }
+
+    private static byte AddOpcode(int length) => length <= 17 ? (byte)(1 + length) : (byte)1;
+    private static byte CopyOpcode(int mode, int length)
+        => (byte)(19 + 16 * mode + (length is >= 4 and <= 18 ? length - 3 : 0));
+
+    private readonly int LiteralCost(int length)
+    {
+        if (length == 0) return 0;
+        if (length > 17) return length + 1 + WireInteger.Size(length);
+        return _canPair && DefaultCodeTable.TryPair(_lastOpcode, AddOpcode(length), out _) ? length : length + 1;
+    }
+
+    internal readonly int RunSavings(int writeOffset, int length)
+    {
+        int pending = writeOffset - _written;
+        return LiteralCost(pending + length) - LiteralCost(pending) - 2 - WireInteger.Size(length);
+    }
+
+    internal readonly int CopySavings(int writeOffset, int address, int length)
+    {
+        int pending = writeOffset - _written;
+        int mode = SelectAddress(address, writeOffset, out int value);
+        int cost = 1 + (mode >= 6 ? 1 : WireInteger.Size(value));
+        if (length is < 4 or > 18)
+            cost += WireInteger.Size(length);
+        else
+        {
+            // A pending ADD already paired with the preceding COPY cannot pair a second time.
+            bool canPair = pending == 0 ? _canPair : pending <= 4 && LiteralCost(pending) > pending;
+            if (canPair && DefaultCodeTable.TryPair(pending == 0 ? _lastOpcode : AddOpcode(pending),
+                CopyOpcode(mode, length), out _)) cost--;
+        }
+        if (_addresses.Length == 0 && sourceLength != 0)
+            cost += WireInteger.Size(sourceOffset) + WireInteger.Size(sourceLength);
+        return LiteralCost(pending + length) - LiteralCost(pending) - cost;
+    }
+
+    internal readonly int CopySavingsUpperBound(int windowLength, int earliestWriteOffset)
+    {
+        int remaining = windowLength - earliestWriteOffset;
+        // For long matches even the cheapest complete COPY needs opcode, size, and one address byte.
+        // Shortening across a size-varint boundary saves at most the number of literal bytes forfeited.
+        int minCost = remaining >= 32 ? 2 + WireInteger.Size(remaining) : 1;
+        if (_addresses.Length == 0 && sourceLength != 0) minCost += WireInteger.Size(sourceOffset) + WireInteger.Size(sourceLength);
+        return LiteralCost(windowLength - _written) - LiteralCost(earliestWriteOffset - _written) - minCost;
     }
 
     private void Instruction(byte opcode, int size, bool explicitSize)
@@ -61,11 +107,11 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
         _canPair = !explicitSize;
     }
 
-    private int WriteAddress(int address)
+    private readonly int SelectAddress(int address, int writeOffset, out int value)
     {
         int mode = 0;
-        int value = address;
-        int distance = sourceLength + _written - address;
+        value = address;
+        int distance = sourceLength + writeOffset - address;
         if (distance < value)
         {
             value = distance;
@@ -81,23 +127,29 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
             }
         }
 
-        if (!_same.IsEmpty)
+        if (!_same.IsEmpty && _addresses.Length != 0 && value >= 128)
         {
-            if (_addresses.Length == 0) _same.Clear();
             int slot = address % _same.Length;
-            if (value >= 128 && _same[slot] == address)
+            if (_same[slot] == address)
             {
                 mode = 6 + slot / 256;
                 value = slot % 256;
             }
-            _same[slot] = address;
         }
+        return mode;
+    }
 
+    private void CommitAddress(int address, int mode, int value)
+    {
+        if (!_same.IsEmpty)
+        {
+            if (_addresses.Length == 0) _same.Clear();
+            _same[address % _same.Length] = address;
+        }
         if (mode >= 6) _addresses.Add((byte)value);
         else _addresses.Integer(value);
         _near[_nextNear] = address;
         _nextNear = (_nextNear + 1) & 3;
-        return mode;
     }
 
     // Return the exact array for a single-window allocating call, or append directly to the sink.

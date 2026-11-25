@@ -7,7 +7,7 @@ A .NET 8 library for creating and applying RFC 3284 version 0 patches with the d
 ```csharp
 using VCDiffSharp;
 
-byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast);
+byte[] patch = Vcdiff.Encode(source, target);
 byte[] restored = Vcdiff.Decode(source, patch, maxOutputBytes: 256 * 1024 * 1024);
 
 // When the caller already owns the output buffer:
@@ -32,10 +32,10 @@ Malformed patches and output above `maxOutputBytes` raise `InvalidDataException`
 | Type | Responsibility |
 | --- | --- |
 | `Vcdiff` | Public entry points, file header, window sequence, and total output limit. |
-| `Encoding/WindowEncoder` | Select source segments and scan target windows for source matches and runs. |
+| `Encoding/WindowEncoder` | Select source segments and choose ADD, RUN, or COPY under the requested search policy. |
 | `Encoding/WindowWriter` | Frame the window and write its data, instructions, and COPY addresses. |
 | `Encoding/SourceMatchFinder` | Search an indexed source segment. The encoder can reuse the index across windows that select that segment. |
-| `Encoding/TargetMatchFinder` | Reserved for the planned Default mode. |
+| `Encoding/TargetMatchFinder` | Search four-byte seeds at earlier positions in the current target window, allowing overlapping COPY operations. |
 | `Encoding/CopyMatch` | Carry a candidate’s read offset, target write offset, and length from either finder. |
 | `Decoding/WindowReader` | Parse file and window headers, validate the dictionary range, and bound the three section cursors. |
 | `Decoding/WindowDecoder` | Execute the data, instruction, and address sections against the selected dictionary and the target window being reconstructed. |
@@ -44,13 +44,17 @@ Malformed patches and output above `maxOutputBytes` raise `InvalidDataException`
 
 Run `dotnet test -c Release` for the [RFC 3284](https://www.rfc-editor.org/rfc/rfc3284.html) vectors, malformed inputs, and [independent xdelta3 and open-vcdiff fixtures](tests/VCDiffSharp.Tests/Fixtures/README.md).
 
-## Fast encoding
+## Encoding modes
 
-`VcdiffEncodeMode.Fast` checks the source bucket head and follows up to 256 collision links per indexed probe. It keeps the longest match, including backward extension into pending literals, and keeps the first matching landmark on ties. It also recognizes runs of repeated bytes. Both mode-less Encode overloads currently use Fast. Specify Fast explicitly to keep that policy when the planned Default mode adds target matching.
+`Vcdiff.Encode(source, target)` uses **Default**. It searches the full source bucket chain and earlier target positions for each four-byte target seed. The parser compares the estimated savings of COPY and RUN against extending the pending ADD. It accounts for COPY address modes, opcode pairs, and the first dictionary header. Before committing a short match it looks ahead up to seven positions for a better alignment. This is a greedy search. Highly repetitive inputs can make full-chain searches expensive.
 
-The source matcher uses DeltaSharp’s eight-byte landmarks and compact, one-based block indices. For a tiny target it can probe a four-byte seed directly in a small source or skip a disproportionately large source index. For indexed sources through 2,047 bytes, bucket heads and collision links fit on the stack. Larger tables store both in a single rental with 16- or 32-bit entries. A source index covers up to 64 MiB and serves consecutive 8 MiB target windows selecting the same segment. Matches can extend backward into pending literals.
+With an empty source, Default can encode 65,536 bytes of repeated `ABCD` in a 24-byte patch: ADD four bytes, then COPY the remaining 65,532 from target offset zero. Target history and address caches start fresh at each 8 MiB window. Large windows rent target-index storage on first use. Tiny windows scan earlier positions directly.
 
-Pass `memoryMode: MemoryMode.LessMemory` to either Encode output overload to reduce the source index size. For an indexed segment with 300 complete eight-byte blocks, `LessMemory` rounds up to 512 buckets. `MemoryMode.Default` doubles that to 1,024. Both store one collision link per block and follow up to 256 links per probe. Different bucket assignments can change which matches are reached within that limit. Both modes produce standard VCDIFF patches.
+`VcdiffEncodeMode.Fast` checks the source bucket head and follows up to 256 collision links per indexed probe. It keeps the longest match, including backward extension into pending literals, and keeps the first matching landmark on ties. It emits literals, source copies, and runs. Choose it explicitly when encoding speed is the priority.
+
+The source matcher uses DeltaSharp’s eight-byte landmarks and compact, one-based block indices. For a tiny target both modes can probe four-byte seeds directly. Against a disproportionately large source, Fast skips the source index and Default scans the selected source segment directly. For indexed sources through 2,047 bytes, bucket heads and collision links fit on the stack. Larger tables store both in a single rental with 16- or 32-bit entries. A source index covers up to 64 MiB and serves consecutive 8 MiB target windows selecting the same segment. Matches can extend backward into pending literals.
+
+Pass `memoryMode: MemoryMode.LessMemory` to either Encode output overload to reduce the bucket count for indexed searches. For a source segment with 300 complete eight-byte blocks, `LessMemory` rounds up to 512 buckets. `MemoryMode.Default` doubles that to 1,024. Default's target index also doubles its bucket count under the larger memory policy. Both policies retain all links. Fast's hop cap can make its output sensitive to bucket assignments.
 
 ```csharp
 byte[] patch = Vcdiff.Encode(source, target, memoryMode: MemoryMode.LessMemory);
@@ -67,4 +71,4 @@ Run the Release benchmark from the repository root.
 dotnet run -c Release --project benchmarks/VCDiffSharp.Benchmarks
 ```
 
-Optionally append two file paths after `--` to include a source/target pair. The harness checks the reconstructed bytes and reports median time per call, managed allocations per call, and patch size for both public output paths. The writer measurement reuses a preallocated destination. The recorded file pair uses DeltaSharp’s Moby-Dick editions, pg15.txt and pg2701.txt. [Memory mode comparison on .NET 8 Arm64](benchmarks/Results/Fast-memory-modes-net8-arm64.csv) · [Original collision-chain baseline](benchmarks/Results/Fast-collision-chains-net8-arm64.csv) · [Earlier single-candidate baseline](benchmarks/Results/Fast-net8-arm64.csv)
+Optionally append two file paths after `--` to include a source/target pair. The harness checks the reconstructed bytes and reports median time per call, managed allocations per call, and patch size for both public output paths. The writer measurement reuses a preallocated destination. The recorded file pair uses DeltaSharp’s Moby-Dick editions, pg15.txt and pg2701.txt. [Default and Fast on .NET 8 Arm64](benchmarks/Results/Default-vs-Fast-net8-arm64.csv) · [Fast memory mode comparison](benchmarks/Results/Fast-memory-modes-net8-arm64.csv) · [Original collision-chain baseline](benchmarks/Results/Fast-collision-chains-net8-arm64.csv) · [Earlier single-candidate baseline](benchmarks/Results/Fast-net8-arm64.csv)

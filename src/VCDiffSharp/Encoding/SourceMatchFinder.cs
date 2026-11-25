@@ -1,91 +1,46 @@
 // Source landmarks and hash adapted from DeltaSharp. Copyright (c) 2024 Israel Lot, MIT.
-using System.Buffers;
 using System.Buffers.Binary;
-using System.Numerics;
 
 namespace VCDiffSharp.Encoding;
 
-/// <summary>Indexes eight-byte source landmarks with compact, bounded collision chains.</summary>
+/// <summary>Indexes eight-byte source landmarks for bounded or full collision-chain search.</summary>
 internal readonly ref struct SourceMatchFinder
 {
     private const int MaxCollisionHops = 256;
 
     private readonly ReadOnlySpan<byte> _source;
-    private readonly Span<byte> _small;
-    private readonly ushort[]? _medium;
-    private readonly int[]? _large;
+    private readonly MatchIndex _index;
     private readonly bool _direct;
 
     internal int SourceSegmentLength => _source.Length;
-    internal int BucketCount { get; }
-
-    private static int GetBucketCount(int blocks, MemoryMode memoryMode)
-    {
-        int rounded = (int)BitOperations.RoundUpToPowerOf2((uint)blocks);
-        return memoryMode == MemoryMode.Default ? 2 * rounded : rounded;
-    }
+    internal int BucketCount => _index.BucketCount;
 
     internal static int SmallTableSize(int sourceLength, int targetLength, MemoryMode memoryMode)
     {
         int blocks = sourceLength / 8;
         if (blocks is 0 or > byte.MaxValue || targetLength <= 32) return 0;
-        return GetBucketCount(blocks, memoryMode) + blocks;
+        return MatchIndex.Buckets(blocks, memoryMode) + blocks;
     }
 
-    internal SourceMatchFinder(ReadOnlySpan<byte> source, int targetLength, MemoryMode memoryMode, Span<byte> smallTable)
+    internal SourceMatchFinder(ReadOnlySpan<byte> source, int targetLength, MemoryMode memoryMode, Span<byte> smallTable,
+        VcdiffEncodeMode mode = VcdiffEncodeMode.Fast)
     {
         // Building a large index for a handful of probes costs more than emitting the literals.
         bool disproportionateIndex = targetLength <= 256 && source.Length > Math.Max(2047, 64 * targetLength);
-        if (source.Length < 4 || targetLength < 4 || disproportionateIndex)
+        if (source.Length < 4 || targetLength < 4 || (disproportionateIndex && mode == VcdiffEncodeMode.Fast))
             return;
 
         _source = source;
-        if (targetLength <= 32 || source.Length < 8)
+        if (targetLength <= 32 || source.Length < 8 || disproportionateIndex)
         {
             _direct = true;
             return;
         }
 
         int blocks = source.Length / 8;
-        int buckets = GetBucketCount(blocks, memoryMode);
-        BucketCount = buckets;
-        if (blocks > ushort.MaxValue)
-        {
-            _large = ArrayPool<int>.Shared.Rent(buckets + blocks);
-            _large.AsSpan(0, buckets).Clear();
-        }
-        else if (blocks > byte.MaxValue)
-        {
-            _medium = ArrayPool<ushort>.Shared.Rent(buckets + blocks);
-            _medium.AsSpan(0, buckets).Clear();
-        }
-        else
-        {
-            _small = smallTable[..(buckets + blocks)];
-            _small[..buckets].Clear();
-        }
-
-        // Heads precede links in pooled storage. Every link is overwritten during construction.
-        // Prepending in reverse source order gives the earliest landmark precedence on ties.
+        _index = new MatchIndex(blocks, MatchIndex.Buckets(blocks, memoryMode), smallTable);
         for (int i = blocks - 1; i >= 0; i--)
-        {
-            int bucket = Bucket(source.Slice(i * 8), buckets - 1);
-            if (_large != null)
-            {
-                _large[buckets + i] = _large[bucket];
-                _large[bucket] = i + 1;
-            }
-            else if (_medium != null)
-            {
-                _medium[buckets + i] = _medium[bucket];
-                _medium[bucket] = (ushort)(i + 1);
-            }
-            else
-            {
-                _small[buckets + i] = _small[bucket];
-                _small[bucket] = (byte)(i + 1);
-            }
-        }
+            _index.Prepend(Bucket(source[(i * 8)..], BucketCount - 1), i);
     }
 
     internal CopyMatch FindMatch(ReadOnlySpan<byte> window, int probe, int pendingStart)
@@ -103,7 +58,7 @@ internal readonly ref struct SourceMatchFinder
 
         if (tail.Length < 8) return default;
         int bucket = Bucket(tail, BucketCount - 1);
-        int block = Entry(bucket);
+        int block = _index.Entry(bucket);
         CopyMatch best = default;
         for (int hops = 0; block != 0; hops++)
         {
@@ -119,12 +74,55 @@ internal readonly ref struct SourceMatchFinder
                 }
             }
             if (hops == MaxCollisionHops) break;
-            block = Entry(BucketCount + index);
+            block = _index.Entry(BucketCount + index);
         }
         return best;
     }
 
-    private int Entry(int slot) => _large != null ? _large[slot] : _medium != null ? _medium[slot] : _small[slot];
+    internal void Search(ReadOnlySpan<byte> window, int probe, int pendingStart, scoped in WindowWriter writer,
+        scoped ref WindowChoice best, int upperBound)
+    {
+        if (_source.IsEmpty || best.Savings >= upperBound) return;
+        var tail = window[probe..];
+        if (_direct)
+        {
+            if (tail.Length < 4) return;
+            int start = 0;
+            while (start <= _source.Length - 4)
+            {
+                int hit = _source[start..].IndexOf(tail[..4]);
+                if (hit < 0) break;
+                int position = start + hit;
+                Consider(window, probe, pendingStart, position, in writer, ref best);
+                if (best.Savings >= upperBound) break;
+                start = position + 1;
+            }
+            return;
+        }
+
+        if (tail.Length < 8) return;
+        int block = _index.Entry(Bucket(tail, BucketCount - 1));
+        while (block != 0)
+        {
+            int index = block - 1;
+            int position = index * 8;
+            if (_source[position] == tail[0])
+            {
+                Consider(window, probe, pendingStart, position, in writer, ref best);
+                if (best.Savings >= upperBound) break;
+            }
+            block = _index.Entry(BucketCount + index);
+        }
+    }
+
+    private void Consider(ReadOnlySpan<byte> window, int probe, int pendingStart, int position,
+        scoped in WindowWriter writer, scoped ref WindowChoice best)
+    {
+        var match = Extend(window, probe, pendingStart, position);
+        if (match.Length < 4) return;
+        int savings = writer.CopySavings(match.WriteOffset, match.ReadOffset, match.Length);
+        best.Consider(savings, match.WriteOffset, match.Length, match.ReadOffset);
+    }
 
     private CopyMatch Extend(ReadOnlySpan<byte> window, int probe, int pendingStart, int position)
     {
@@ -147,9 +145,5 @@ internal readonly ref struct SourceMatchFinder
         }
     }
 
-    public void Dispose()
-    {
-        if (_medium != null) ArrayPool<ushort>.Shared.Return(_medium);
-        if (_large != null) ArrayPool<int>.Shared.Return(_large);
-    }
+    public void Dispose() => _index.Dispose();
 }

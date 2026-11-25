@@ -10,11 +10,11 @@ public static class Vcdiff
 {
     /// <summary>Creates a patch that reconstructs the target from the source.</summary>
     public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target)
-        => Encode(source, target, VcdiffEncodeMode.Fast);
+        => Encode(source, target, VcdiffEncodeMode.Default);
 
     /// <summary>Writes the encoded patch to a caller-provided buffer writer.</summary>
     public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination)
-        => Encode(source, target, destination, VcdiffEncodeMode.Fast);
+        => Encode(source, target, destination, VcdiffEncodeMode.Default);
 
     /// <summary>Creates a patch using the selected search mode.</summary>
     public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, VcdiffEncodeMode mode)
@@ -22,14 +22,14 @@ public static class Vcdiff
 
     /// <summary>Creates a patch using the specified source-index memory policy.</summary>
     public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, MemoryMode memoryMode)
-        => Encode(source, target, VcdiffEncodeMode.Fast, memoryMode);
+        => Encode(source, target, VcdiffEncodeMode.Default, memoryMode);
 
     /// <summary>Creates a patch using the selected search and memory policies.</summary>
     public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, VcdiffEncodeMode mode,
         MemoryMode memoryMode)
     {
         ValidateEncodeModes(mode, memoryMode);
-        return WindowEncoder.EncodeFast(source, target, null, memoryMode)!;
+        return WindowEncoder.Encode(source, target, null, mode, memoryMode)!;
     }
 
     /// <summary>Appends a VCDIFF file, one framed window at a time.</summary>
@@ -40,7 +40,7 @@ public static class Vcdiff
     /// <summary>Appends a patch using the specified source-index memory policy.</summary>
     public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
         MemoryMode memoryMode)
-        => Encode(source, target, destination, VcdiffEncodeMode.Fast, memoryMode);
+        => Encode(source, target, destination, VcdiffEncodeMode.Default, memoryMode);
 
     /// <summary>Appends a patch using the selected search and memory policies.</summary>
     public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
@@ -48,12 +48,12 @@ public static class Vcdiff
     {
         ArgumentNullException.ThrowIfNull(destination);
         ValidateEncodeModes(mode, memoryMode);
-        WindowEncoder.EncodeFast(source, target, destination, memoryMode);
+        WindowEncoder.Encode(source, target, destination, mode, memoryMode);
     }
 
     private static void ValidateEncodeModes(VcdiffEncodeMode mode, MemoryMode memoryMode)
     {
-        if (mode != VcdiffEncodeMode.Fast) throw new ArgumentOutOfRangeException(nameof(mode));
+        if (mode is not (VcdiffEncodeMode.Fast or VcdiffEncodeMode.Default)) throw new ArgumentOutOfRangeException(nameof(mode));
         if (memoryMode is not (MemoryMode.Default or MemoryMode.LessMemory))
             throw new ArgumentOutOfRangeException(nameof(memoryMode));
     }

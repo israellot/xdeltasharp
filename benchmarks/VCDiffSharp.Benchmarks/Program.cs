@@ -5,7 +5,7 @@ using VCDiffSharp;
 
 // Use Release. Report the median of seven batches after warm-up, excluding fixture setup and validation.
 Console.Error.WriteLine($"{RuntimeInformation.FrameworkDescription}, {RuntimeInformation.ProcessArchitecture}");
-Console.WriteLine("Case,Memory mode,Source B,Target B,Patch B,API,ns/op,Allocated B/op");
+Console.WriteLine("Case,Search mode,Memory mode,Source B,Target B,Patch B,API,ns/op,Allocated B/op");
 
 foreach (int size in new[] { 0, 4, 8, 16, 32, 64, 256, 2047, 2048, 524287, 524288 })
 {
@@ -20,6 +20,10 @@ Benchmark("short target", Bytes(1 << 20), Bytes(64));
 Benchmark("tiny source", Bytes(32), Bytes(1 << 20));
 Benchmark("source-free runs", [], new byte[1 << 20]);
 Benchmark("source-free ABCD", [], Enumerable.Repeat("ABCD"u8.ToArray(), 16384).SelectMany(x => x).ToArray());
+byte[] interrupted = new byte[1 << 20];
+for (int i = 0; i < interrupted.Length; i++) interrupted[i] = (byte)(i % 4);
+interrupted[interrupted.Length / 2] = 42;
+Benchmark("interrupted period", [], interrupted);
 Benchmark("two windows", [], new byte[(8 << 20) + 1]);
 // Reverse distinct 32-byte records that all start with the same indexed landmark.
 byte[] records = Bytes(256 * 32);
@@ -44,26 +48,29 @@ static byte[] Bytes(int length)
 
 static void Benchmark(string name, byte[] source, byte[] target)
 {
-    MeasureMode(name, source, target, MemoryMode.Default);
-    MeasureMode(name, source, target, MemoryMode.LessMemory);
+    foreach (var mode in new[] { VcdiffEncodeMode.Fast, VcdiffEncodeMode.Default })
+    {
+        MeasureMode(name, source, target, mode, MemoryMode.Default);
+        MeasureMode(name, source, target, mode, MemoryMode.LessMemory);
+    }
 }
 
-static void MeasureMode(string name, byte[] source, byte[] target, MemoryMode memoryMode)
+static void MeasureMode(string name, byte[] source, byte[] target, VcdiffEncodeMode mode, MemoryMode memoryMode)
 {
-    byte[] reference = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast, memoryMode);
+    byte[] reference = Vcdiff.Encode(source, target, mode, memoryMode);
     if (!Vcdiff.Decode(source, reference).AsSpan().SequenceEqual(target))
         throw new InvalidDataException("Round trip failed.");
     var writer = new ArrayBufferWriter<byte>(reference.Length);
     void EncodeInto()
     {
         writer.ResetWrittenCount();
-        Vcdiff.Encode(source, target, writer, VcdiffEncodeMode.Fast, memoryMode);
+        Vcdiff.Encode(source, target, writer, mode, memoryMode);
     }
 
     EncodeInto();
     if (!writer.WrittenSpan.SequenceEqual(reference)) throw new InvalidDataException("Writer output differs.");
     Measure("writer", EncodeInto);
-    Measure("array", () => Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast, memoryMode));
+    Measure("array", () => Vcdiff.Encode(source, target, mode, memoryMode));
 
     void Measure(string api, Action encode)
     {
@@ -92,6 +99,6 @@ static void MeasureMode(string name, byte[] source, byte[] target, MemoryMode me
         }
         Array.Sort(timings);
         Console.WriteLine(FormattableString.Invariant(
-            $"{name},{memoryMode},{source.Length},{target.Length},{reference.Length},{api},{timings[3]:F1},{(double)allocated / batch / timings.Length:F1}"));
+            $"{name},{mode},{memoryMode},{source.Length},{target.Length},{reference.Length},{api},{timings[3]:F1},{(double)allocated / batch / timings.Length:F1}"));
     }
 }

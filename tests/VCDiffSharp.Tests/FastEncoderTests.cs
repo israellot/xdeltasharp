@@ -40,7 +40,7 @@ public class FastEncoderTests
     {
         byte[] source = Bytes(1024);
         byte[] target = [123, .. source[3..95], 21];
-        byte[] patch = Vcdiff.Encode(source, target);
+        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast);
         AssertDecodes(source, patch, target);
         var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
         Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
@@ -60,7 +60,7 @@ public class FastEncoderTests
     {
         byte[] source = Bytes(length);
         byte[] target = [.. source.AsSpan(length / 2), 5, 6, 7, .. source.AsSpan(0, length / 2)];
-        AssertPatch(source, target, Vcdiff.Encode(source, target));
+        AssertPatch(source, target, Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast));
     }
 
     [Theory]
@@ -136,7 +136,7 @@ public class FastEncoderTests
     {
         const int size = 8 << 20;
         byte[] target = new byte[size + extra];
-        byte[] patch = Vcdiff.Encode([], target);
+        byte[] patch = Vcdiff.Encode([], target, VcdiffEncodeMode.Fast);
         int firstSize = Math.Min(size, target.Length);
         var first = Window(firstSize, [0], [0, .. Integer(firstSize)], []);
         Assert.Equal(extra > 0 ? Patch(first, Window(1, [0], [2], [])) : Patch(first), patch);
@@ -160,7 +160,7 @@ public class FastEncoderTests
                 target.Add((byte)random.Next(256));
             }
             byte[] bytes = target.ToArray();
-            AssertPatch(source, bytes, Vcdiff.Encode(source, bytes));
+            AssertPatch(source, bytes, Vcdiff.Encode(source, bytes, VcdiffEncodeMode.Fast));
         }
     }
 
@@ -242,17 +242,17 @@ public class FastEncoderTests
         byte[] source = Bytes(128);
         byte[] target = [21, .. source.AsSpan(8, copyLength), 42];
         var sink = new ArrayBufferWriter<byte>(128);
-        byte[] expected = Vcdiff.Encode(source, target, memoryMode);
-        Vcdiff.Encode(source, target, sink, memoryMode);
+        byte[] expected = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast, memoryMode);
+        Vcdiff.Encode(source, target, sink, VcdiffEncodeMode.Fast, memoryMode);
         long start = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++)
         {
             sink.ResetWrittenCount();
-            Vcdiff.Encode(source, target, sink, memoryMode);
+            Vcdiff.Encode(source, target, sink, VcdiffEncodeMode.Fast, memoryMode);
         }
         long writerBytes = GC.GetAllocatedBytesForCurrentThread() - start;
         start = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 100; i++) GC.KeepAlive(Vcdiff.Encode(source, target, memoryMode));
+        for (int i = 0; i < 100; i++) GC.KeepAlive(Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast, memoryMode));
         long allocatingBytes = GC.GetAllocatedBytesForCurrentThread() - start;
         start = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++) GC.KeepAlive(new byte[expected.Length]);
@@ -309,18 +309,17 @@ public class FastEncoderTests
         target.AsSpan(0, 8).Clear();
         target.CopyTo(source, 257 * 8);
 
-        var larger = Vcdiff.Encode(source, target, MemoryMode.Default);
-        var smaller = Vcdiff.Encode(source, target, MemoryMode.LessMemory);
+        var larger = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast, MemoryMode.Default);
+        var smaller = Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast, MemoryMode.LessMemory);
         Assert.True(larger.Length < smaller.Length);
-        Assert.Equal(larger, Vcdiff.Encode(source, target));
         Assert.Equal(larger, Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast));
         AssertDecodes(source, larger, target);
         AssertDecodes(source, smaller, target);
         var sink = new ArrayBufferWriter<byte>();
-        Vcdiff.Encode(source, target, sink);
+        Vcdiff.Encode(source, target, sink, VcdiffEncodeMode.Fast);
         Assert.Equal(larger, sink.WrittenSpan.ToArray());
         sink.ResetWrittenCount();
-        Vcdiff.Encode(source, target, sink, memoryMode: MemoryMode.LessMemory);
+        Vcdiff.Encode(source, target, sink, VcdiffEncodeMode.Fast, memoryMode: MemoryMode.LessMemory);
         Assert.Equal(smaller, sink.WrittenSpan.ToArray());
         sink.ResetWrittenCount();
         Vcdiff.Encode(source, target, sink, VcdiffEncodeMode.Fast, MemoryMode.LessMemory);
