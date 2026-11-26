@@ -1,5 +1,8 @@
 # XDeltaSharp
 
+[![Line coverage](.github/badges/lines.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
+[![Branch coverage](.github/badges/branches.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
+
 XDeltaSharp creates binary patches and applies them on .NET 8. Give it the original bytes and the updated bytes to produce a VCDIFF patch. A recipient with the same original can reconstruct the update by applying the patch. The core library is managed C# and has no NuGet dependencies.
 
 ## Choose a package
@@ -71,5 +74,7 @@ Start with `Vcdiff.Encode(source, target)`, which uses level 3. Pass `compressio
 Use `EncodeOptimized` when smaller patches justify extra encoding work. It keeps a refined window only if it is smaller than the ordinary encoding for the same settings. The recipient uses the same decoder for every encoding mode.
 
 ## Development
+
+The coverage badges summarize the core, LZMA, and BLAKE3 libraries together. Open a successful [coverage run](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml), download its `coverage-report` artifact, and open `index.html` for the per-file breakdown.
 
 Run `dotnet test XDeltaSharp.sln -c Release` from the repository root. The suite includes real xdelta3 and open-vcdiff fixtures. For matcher settings, implementation details, benchmark commands, and measurements, see the [encoder and benchmark notes](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md).
