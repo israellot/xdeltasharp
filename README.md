@@ -1,5 +1,8 @@
 # XDeltaSharp
 
+[![Line coverage](.github/badges/lines.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
+[![Branch coverage](.github/badges/branches.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
+
 XDeltaSharp creates and applies VCDIFF binary patches in .NET 8 and later. Use it to distribute an update when the recipient already has the original file. The patch can reuse byte ranges from the original, even when those bytes have moved. The core library is managed C# with no package dependencies.
 
 For example, the default encoder produces a **21,287-byte patch** between two editions of *Moby-Dick*. With the original file already on disk, the download is **1.7% of the 1,253,974-byte updated file**. [Sample files](https://github.com/israellot/DeltaSharp/tree/main/src/Benchmarks/Data)
