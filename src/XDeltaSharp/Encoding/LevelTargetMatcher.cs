@@ -12,14 +12,14 @@ internal ref struct LevelTargetMatcher(ReadOnlySpan<byte> window, MatcherProfile
     private int _ringMask;
     private const int MaxLinks = 1 << 18;
 
-    private static int Links(int starts, MatcherProfile profile) => profile.TargetChain <= 1 ? 0 :
+    private static int Links(int starts, MatcherProfile profile) => profile.TargetCandidates <= 1 ? 0 :
         Math.Min(MaxLinks, (int)BitOperations.RoundUpToPowerOf2((uint)starts));
     private static int Buckets(int starts, MemoryMode memory) => MatchIndex.Buckets((starts + 3) / 4, memory);
 
     internal static int ScratchSize(int length, MatcherProfile profile, MemoryMode memory)
     {
-        int starts = length - 3;
-        if (profile.TargetChain == 0 || starts is <= 0 or > byte.MaxValue) return 0;
+        int starts = length - (MatcherProfile.TargetSeed - 1);
+        if (profile.TargetCandidates == 0 || starts is <= 0 or > byte.MaxValue) return 0;
         return Buckets(starts, memory) + Links(starts, profile);
     }
 
@@ -27,7 +27,7 @@ internal ref struct LevelTargetMatcher(ReadOnlySpan<byte> window, MatcherProfile
     {
         if (_index.BucketCount == 0)
         {
-            int starts = _window.Length - 3;
+            int starts = _window.Length - (MatcherProfile.TargetSeed - 1);
             int links = Links(starts, profile);
             _ringMask = links - 1;
             _index = new MatchIndex(starts, Buckets(starts, memory), _scratch, links);
@@ -39,20 +39,23 @@ internal ref struct LevelTargetMatcher(ReadOnlySpan<byte> window, MatcherProfile
         int head = _index.Entry(bucket);
         int entry = head;
         CopyMatch best = default;
-        int budget = lazy ? profile.LazyChain : profile.TargetChain;
+        int budget = lazy ? profile.LazyCandidates : profile.TargetCandidates;
         while (entry != 0 && budget-- > 0)
         {
             int position = entry - 1;
             var earlier = _window[position..];
             if (BinaryPrimitives.ReadUInt32LittleEndian(earlier) == seed)
             {
-                int length = 4 + tail[4..].CommonPrefixLength(earlier[4..]);
+                int length = MatcherProfile.TargetSeed +
+                    tail[MatcherProfile.TargetSeed..].CommonPrefixLength(earlier[MatcherProfile.TargetSeed..]);
                 if (length >= minimum && length > best.Length)
                 {
                     best = new CopyMatch(position, probe, length);
-                    if (length >= profile.LongEnough || length == tail.Length) break;
+                    if (length >= profile.TargetStopLength || length == tail.Length) break;
                 }
             }
+            // The bucket head remains usable after its ring slot has been reused.
+            // Only follow links whose positions still belong to this ring generation.
             if (budget == 0 || probe - position > _ringMask) break;
             entry = _index.Entry(_index.BucketCount + (position & _ringMask));
             if (entry == 0 || probe - (entry - 1) > _ringMask) break;

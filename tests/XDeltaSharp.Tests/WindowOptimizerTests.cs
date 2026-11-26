@@ -42,7 +42,7 @@ public class WindowOptimizerTests
         var writer = new WindowWriter(1000, source.Length, stackalloc byte[32], stackalloc byte[32], stackalloc byte[32], []);
         try
         {
-            writer.Add(target[..4]);
+            writer.Add(target.AsSpan(0, 4));
             writer.Copy(source.Length, target.Length - 4);
             byte[] smaller = WindowOptimizer.Finish(ref writer, source, 1000, target, true, null)!;
             Assert.Equal(0, smaller[5]);
@@ -58,11 +58,11 @@ public class WindowOptimizerTests
         var writer = new WindowWriter(0, 0, stackalloc byte[32], stackalloc byte[32], stackalloc byte[32], []);
         try
         {
-            writer.Add(target[..2]);
+            writer.Add(target.AsSpan(0, 2));
             writer.Run((byte)'a', 3);
-            writer.Add(target[5..9]);
+            writer.Add(target.AsSpan(5, 4));
             writer.Run((byte)'b', target.Length - 11);
-            writer.Add(target[^2..]);
+            writer.Add(target.AsSpan(^2));
             byte[] original = writer.Finish(target, true, null)!;
             byte[] smaller = WindowOptimizer.Finish(ref writer, [], 0, target, true, null)!;
             Assert.True(smaller.Length < original.Length);
@@ -75,12 +75,68 @@ public class WindowOptimizerTests
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(7)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(16383)]
+    [InlineData(16384)]
     [InlineData(32768)]
     public void TiesKeepTheOriginalFrame(int size)
     {
         var target = new byte[size];
-        byte[] before = Vcdiff.Encode([], target);
-        Assert.Equal(before, Vcdiff.EncodeOptimized([], target));
+        byte[] expected = Vcdiff.Encode([], target);
+        var output = new ArrayBufferWriter<byte>();
+        Vcdiff.EncodeOptimized([], target, output);
+        Assert.True(output.WrittenSpan.SequenceEqual(expected));
+        Assert.Equal(expected, Vcdiff.EncodeOptimized([], target));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(16384)]
+    public void AWholeWindowRunCanFinishDirectlyIncludingItsLiteralFallback(int size)
+    {
+        var target = new byte[size];
+        var writer = new WindowWriter(20, 10, stackalloc byte[8], stackalloc byte[8], stackalloc byte[8], []);
+        try
+        {
+            writer.Run(0, size);
+            Assert.True(writer.IsEmptyOrSingleDataOperation);
+            Assert.Equal(size <= 2, writer.Measure(size).LiteralOnly);
+
+            byte[] patch = writer.Finish(target, true, null)!;
+            Assert.Equal(patch, WindowOptimizer.Finish(ref writer, new byte[10], 20, target, true, null));
+            AssertDecodes([], patch, target);
+
+            writer.Run(1, 1);
+            Assert.False(writer.IsEmptyOrSingleDataOperation);
+        }
+        finally { writer.Dispose(); }
+    }
+
+    [Fact]
+    public void MixedOperationsStillRequireRefinement()
+    {
+        var writer = new WindowWriter(0, 4, stackalloc byte[8], stackalloc byte[8], stackalloc byte[8], []);
+        try
+        {
+            Assert.True(writer.IsEmptyOrSingleDataOperation);
+            writer.Add("a variable-size literal"u8);
+            Assert.True(writer.IsEmptyOrSingleDataOperation);
+            writer.Run(0, 1);
+            Assert.False(writer.IsEmptyOrSingleDataOperation);
+        }
+        finally { writer.Dispose(); }
+
+        var copy = new WindowWriter(0, 4, stackalloc byte[8], stackalloc byte[8], stackalloc byte[8], []);
+        try
+        {
+            copy.Copy(0, 4);
+            Assert.False(copy.IsEmptyOrSingleDataOperation);
+        }
+        finally { copy.Dispose(); }
     }
 
     [Fact]
@@ -122,7 +178,7 @@ public class WindowOptimizerTests
     }
 
     [Fact]
-    public void NeverGrowsPatchesAcrossModesLevelsAndMemoryPolicies()
+    public void NeverGrowsPatchesAcrossLevelsAndMemoryPolicies()
     {
         var random = new Random(941);
         for (int trial = 0; trial < 20; trial++)
@@ -141,24 +197,15 @@ public class WindowOptimizerTests
             byte[] target = buffer.ToArray();
             foreach (var memory in Enum.GetValues<MemoryMode>())
             {
-                foreach (var mode in Enum.GetValues<VcdiffEncodeMode>())
-                {
-                    var original = Vcdiff.Encode(source, target, mode, memory);
-                    var optimized = Vcdiff.EncodeOptimized(source, target, mode, memory);
-                    var sink = new ArrayBufferWriter<byte>();
-                    sink.Write("start"u8);
-                    Vcdiff.EncodeOptimized(source, target, sink, mode, memory);
-                    Assert.Equal("start"u8.ToArray(), sink.WrittenSpan[..5].ToArray());
-                    Assert.Equal(optimized, sink.WrittenSpan[5..].ToArray());
-                    Verify(source, target, original, optimized);
-                }
                 for (int level = 0; level <= 9; level++)
                 {
                     var original = Vcdiff.Encode(source, target, level, memory);
                     var optimized = Vcdiff.EncodeOptimized(source, target, level, memory);
                     var sink = new ArrayBufferWriter<byte>();
+                    sink.Write("start"u8);
                     Vcdiff.EncodeOptimized(source, target, sink, level, memory);
-                    Assert.Equal(optimized, sink.WrittenSpan.ToArray());
+                    Assert.True(sink.WrittenSpan[..5].SequenceEqual("start"u8));
+                    Assert.Equal(optimized, sink.WrittenSpan[5..].ToArray());
                     Verify(source, target, original, optimized);
                 }
             }
@@ -184,8 +231,8 @@ public class WindowOptimizerTests
         Verify(source, target, original, optimized);
         using var first = new MemoryStream(original);
         using var second = new MemoryStream(optimized);
-        var a = new WindowReader(first, Vcdiff.MaxTargetWindowBytes);
-        var b = new WindowReader(second, Vcdiff.MaxTargetWindowBytes);
+        var a = new WindowReader(first, Vcdiff.MaxTargetWindowBytes, Array.MaxLength);
+        var b = new WindowReader(second, Vcdiff.MaxTargetWindowBytes, Array.MaxLength);
         foreach (int expected in new[] { windowSize, 101 })
         {
             long startA = first.Position, startB = second.Position;

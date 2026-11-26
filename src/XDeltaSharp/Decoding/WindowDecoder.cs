@@ -4,33 +4,55 @@ namespace XDeltaSharp.Decoding;
 
 internal enum SectionKind : byte { Data = 1, Instructions = 2, Addresses = 4 }
 
-internal delegate ReadOnlySpan<byte> DecodeSecondarySection(SectionKind kind, ReadOnlySpan<byte> encoded);
-
-internal ref struct WindowDecoder(Window window, WindowDictionary dictionary, Span<byte> target, AddressCache cache,
-    DecodeSecondarySection? secondary)
+internal interface ISecondaryDecoder : IDisposable
 {
-    private SectionReader _data = new((window.CompressedSections & (byte)SectionKind.Data) == 0
-        ? window.Data : secondary!(SectionKind.Data, window.Data));
-    private SectionReader _instructions = new((window.CompressedSections & (byte)SectionKind.Instructions) == 0
-        ? window.Instructions : secondary!(SectionKind.Instructions, window.Instructions));
-    private SectionReader _addresses = new((window.CompressedSections & (byte)SectionKind.Addresses) == 0
-        ? window.Addresses : secondary!(SectionKind.Addresses, window.Addresses));
-    private readonly Span<byte> _target = target;
-    private readonly WindowDictionary _dictionary = dictionary;
-    private readonly uint? _checksum = window.Checksum;
+    ReadOnlySpan<byte> Decode(SectionKind kind, ReadOnlySpan<byte> encoded);
+}
+
+internal ref struct WindowDecoder
+{
+    private SectionReader _data;
+    private SectionReader _instructions;
+    private SectionReader _addresses;
+    private readonly Span<byte> _target;
+    private readonly WindowDictionary _dictionary;
+    private readonly uint? _checksum;
     private int _written;
 
-    internal void Decode()
+    internal WindowDecoder(in Window window, in WindowDictionary dictionary, Span<byte> target,
+        Func<ISecondaryDecoder>? createSecondary, scoped ref ISecondaryDecoder? secondary)
+    {
+        _data = new SectionReader(window.Data);
+        _instructions = new SectionReader(window.Instructions);
+        _addresses = new SectionReader(window.Addresses);
+        _target = target;
+        _dictionary = dictionary;
+        _checksum = window.Checksum;
+        if (window.CompressedSections != 0)
+            ExpandSections(window, secondary ??= createSecondary!());
+    }
+
+    private void ExpandSections(in Window window, ISecondaryDecoder decoder)
+    {
+        if ((window.CompressedSections & (byte)SectionKind.Data) != 0)
+            _data = new SectionReader(decoder.Decode(SectionKind.Data, window.Data));
+        if ((window.CompressedSections & (byte)SectionKind.Instructions) != 0)
+            _instructions = new SectionReader(decoder.Decode(SectionKind.Instructions, window.Instructions));
+        if ((window.CompressedSections & (byte)SectionKind.Addresses) != 0)
+            _addresses = new SectionReader(decoder.Decode(SectionKind.Addresses, window.Addresses));
+    }
+
+    internal void Decode(ref AddressCache? cache)
     {
         if (!_addresses.IsEmpty)
-            cache.Reset();
+            cache?.Reset();
 
         while (!_instructions.IsEmpty)
         {
             var (first, second) = DefaultCodeTable.Lookup(_instructions.ReadByte());
-            Execute(first);
+            Execute(first, ref cache);
             if (second.Kind != InstructionKind.NoOp)
-                Execute(second);
+                Execute(second, ref cache);
         }
 
         if (_written != _target.Length || !_data.IsEmpty || !_addresses.IsEmpty)
@@ -59,7 +81,7 @@ internal ref struct WindowDecoder(Window window, WindowDictionary dictionary, Sp
         return (b << 16) | a;
     }
 
-    private void Execute(Instruction instruction)
+    private void Execute(Instruction instruction, ref AddressCache? cache)
     {
         int size = instruction.Size == 0 ? _instructions.ReadLength() : instruction.Size;
         if (size > _target.Length - _written)
@@ -75,6 +97,7 @@ internal ref struct WindowDecoder(Window window, WindowDictionary dictionary, Sp
                 destination.Fill(_data.ReadByte());
                 break;
             case InstructionKind.Copy:
+                cache ??= new AddressCache();
                 long address = cache.ReadAddress(instruction.Mode, _dictionary.Length + _written, ref _addresses);
                 Copy(address, destination);
                 break;

@@ -1,3 +1,4 @@
+using XDeltaSharp.Lzma;
 using Xunit;
 using static XDeltaSharp.Tests.WindowVectors;
 
@@ -122,16 +123,39 @@ public class DecoderTests
         AssertDecodes([], patch, [.. Enumerable.Repeat((byte)42, count), 1]);
     }
 
-    [Fact]
-    public void CallerCanReuseSourceOrPatchBackingStorage()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CallerCanReuseSourceOrPatchBackingStorage(bool useLzma)
     {
+        int Decode(byte[] source, byte[] patch, Span<byte> destination) => useLzma
+            ? LzmaVcdiff.Decode(source, patch, destination)
+            : Vcdiff.Decode(source, patch, destination);
+
         byte[] source = "abcdWXYZ"u8.ToArray();
         var patch = Patch(Window(8, [], [20, 20], [4, 0], 1, 8));
-        Assert.Equal(8, Vcdiff.Decode(source, patch, source.AsSpan()));
+        Assert.Equal(8, Decode(source, patch, source));
         Assert.Equal("WXYZabcd"u8.ToArray(), source);
 
         var literals = Patch(Window(4, "abcd"u8.ToArray(), [5], []), Window(4, "WXYZ"u8.ToArray(), [5], []));
-        Assert.Equal(8, Vcdiff.Decode([], literals, literals.AsSpan(literals.Length - 8)));
+        Assert.Equal(8, Decode([], literals, literals.AsSpan(literals.Length - 8)));
         Assert.Equal("abcdWXYZ"u8.ToArray(), literals[^8..]);
+    }
+
+    [Fact]
+    [Trait("Category", "Allocation")]
+    public void LiteralAndRunSpanDecodingNeedsNoManagedAllocations()
+    {
+        byte[] patch = Patch(Window(7, "ab!"u8.ToArray(), [3, 0, 5], []));
+        byte[] target = new byte[7];
+        Vcdiff.Decode([], patch, target);
+
+        long start = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++)
+            Vcdiff.Decode([], patch, target);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+
+        Assert.Equal(0, allocated);
+        Assert.Equal("ab!!!!!"u8.ToArray(), target);
     }
 }

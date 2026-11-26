@@ -28,7 +28,7 @@ Every build produced byte-identical patches on all five pairs. xdelta3 independe
 
 ## Reproduce
 
-Apply the [experimental patch](../Experiments/FastSourceBlockSize/adjacent-tag.patch) in an isolated checkout of `0ebd5d3`. The unmodified checkout provides the baseline. The patch enables direct-word comparison by default. Use the following switch for cached hashes.
+Apply the [experimental patch](https://github.com/israellot/xdeltasharp/blob/f405b3ea3c0ddcd2e2dbb1e57cd634dd07c88693/benchmarks/Experiments/FastSourceBlockSize/adjacent-tag.patch) in an isolated checkout of `0ebd5d3`. The unmodified checkout provides the baseline. The patch enables direct-word comparison by default. Use the following switch for cached hashes.
 
 ```sh
 git apply --unidiff-zero /path/to/adjacent-tag.patch

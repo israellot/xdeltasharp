@@ -1,3 +1,5 @@
+using XDeltaSharp.Format;
+
 namespace XDeltaSharp.Decoding;
 
 /// <summary>A cursor bounded to the current VCDIFF file, window, or section.</summary>
@@ -24,11 +26,9 @@ internal ref struct SectionReader(ReadOnlySpan<byte> bytes)
         do
         {
             digit = ReadByte();
-            if (value > long.MaxValue >> 7)
+            if (!WireInteger.TryAppendDigit(ref value, digit))
                 throw new InvalidDataException("VCDIFF integer exceeds the supported range.");
-
-            value = (value << 7) | (uint)(digit & 0x7F);
-        } while ((digit & 0x80) != 0);
+        } while ((digit & WireInteger.ContinuationBit) != 0);
         return value;
     }
 

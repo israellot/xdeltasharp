@@ -1,7 +1,7 @@
 # XDeltaSharp
 
-[![Line coverage](.github/badges/lines.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
-[![Branch coverage](.github/badges/branches.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
+[![Line coverage](https://raw.githubusercontent.com/israellot/xdeltasharp/master/.github/badges/lines.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
+[![Branch coverage](https://raw.githubusercontent.com/israellot/xdeltasharp/master/.github/badges/branches.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
 
 XDeltaSharp creates binary patches and applies them on .NET 8. Give it the original bytes and the updated bytes to produce a VCDIFF patch. A recipient with the same original can reconstruct the update by applying the patch. The core library is managed C# and has no NuGet dependencies.
 
@@ -46,8 +46,10 @@ using XDeltaSharp.Lzma;
 using var source = File.OpenRead("original.bin");
 using var patch = File.OpenRead("update.vcdiff");
 using var output = File.Create("restored.bin");
-long written = LzmaVcdiff.Decode(source, patch, output,
-    armor: Blake3Armor.Verify, maxOutputBytes: 4L * 1024 * 1024 * 1024);
+long written = LzmaVcdiff.DecodeWithLimits(source, patch, output,
+    maxEncodedWindowBytes: 8 * 1024 * 1024,
+    maxOutputBytes: 4L * 1024 * 1024 * 1024,
+    armor: Blake3Armor.Verify);
 ```
 
 Without armor verification, omit the `armor` argument. With verification enabled, patches without recognized digests still decode. A source digest mismatch fails before output begins. A target digest mismatch fails after the complete target has been reconstructed, so treat the output as usable only after the call returns successfully. [xdelta3 armor format](https://github.com/jmacd/xdelta/blob/v3.2.2/site/docs/armor.md)
@@ -61,20 +63,28 @@ Without armor verification, omit the `armor` argument. With verification enabled
 | A target file or a target larger than 2 GiB | `Decode(sourceStream, patchStream, outputStream)` | Reads patch windows sequentially and returns a 64-bit byte count. |
 | Patch bytes appended to a writer | `Encode(source, target, writer)` | Appends each completed window to an `IBufferWriter<byte>`. |
 
-`maxOutputBytes` limits total decoded bytes on the allocating and stream overloads. For a caller-owned span, its length limits the output. All decoders cap each decoded target window at **64 MiB**. Use `maxWindowBytes` to lower that limit independently. The encoder writes windows of up to **8 MiB**.
+`maxOutputBytes` limits total decoded bytes on the allocating and stream overloads. For a caller-owned span, its length limits the output. All decoders cap each decoded target window at **64 MiB**. For example, `Vcdiff.Decode(source, patch, maxWindowBytes: limit)` lowers just the decoded window limit on an allocating call. The encoder writes windows of up to **8 MiB**.
 
-The patch stream only needs to be readable. Source copies require a readable, seekable source. Use `Stream.Null` for a dictionary-free patch. Windows that copy from previously decoded windows require a readable, writable, seekable destination; other windows can use a write-only destination. Offsets start at the streams’ initial positions. Decode leaves all streams open and restores a readable, seekable source to its initial position.
+The destination span can overlap the source or the patch. The decoder copies each overlapping input in full before writing. Use disjoint buffers to avoid those copies.
+
+The patch stream only needs to be readable. Source copies require a readable, seekable source. Use `Stream.Null` for a dictionary-free patch. Windows that copy from previously decoded windows require a readable, writable, seekable destination. Other windows can use a write-only destination. Use independent streams for the three roles. Offsets start at the streams’ initial positions. Decode leaves all streams open and restores a readable, seekable source to its initial position.
+
+Stream decoding buffers one window’s encoded data, instructions, and addresses. Use `Vcdiff.DecodeWithLimits` or `LzmaVcdiff.DecodeWithLimits` to cap their combined length with `maxEncodedWindowBytes`. The decoder checks the declared lengths before reading the payload. The file example above allows 8 MiB per encoded window and 4 GiB of total output. Framing, decoded output, and LZMA working memory have separate costs. Existing `Decode` calls allow up to `Array.MaxLength` encoded payload bytes per window.
 
 Malformed patches, integrity mismatches, and exceeded decode limits raise `InvalidDataException`. An undersized destination span raises `ArgumentException`. Span or stream output can contain reconstructed bytes when a call fails.
 
 ## Tune encoding
 
-Start with `Vcdiff.Encode(source, target)`, which uses level 3. Pass `compressionLevel: 0` through `9` to vary the search effort. `VcdiffEncodeMode.Fast` uses a bounded source-only match search for related files. `VcdiffEncodeMode.Exhaustive` searches full source and target candidate chains. `MemoryMode.LessMemory` reduces match-index storage.
+Both `Encode` and `EncodeOptimized` use level 3 by default. Pass a `compressionLevel` from 0 through 9 to select an xdelta3-derived search preset. `MemoryMode.LessMemory` reduces match-index storage.
 
-Use `EncodeOptimized` when smaller patches justify extra encoding work. It keeps a refined window only if it is smaller than the ordinary encoding for the same settings. The recipient uses the same decoder for every encoding mode.
+Use `EncodeOptimized` when smaller patches justify extra encoding work. It keeps a refined window only if it is smaller than the ordinary encoding for the same settings. Patches from every level use the same decoder.
 
 ## Development
 
 The coverage badges summarize the core, LZMA, and BLAKE3 libraries together. Open a successful [coverage run](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml), download its `coverage-report` artifact, and open `index.html` for the per-file breakdown.
 
-Run `dotnet test XDeltaSharp.sln -c Release` from the repository root. The suite includes real xdelta3 and open-vcdiff fixtures. For matcher settings, implementation details, benchmark commands, and measurements, see the [encoder and benchmark notes](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md).
+The libraries target .NET 8 and use C# 12. Release CI uses the exact SDK pinned in the build workflow. Local builds prefer that SDK and can use a newer stable SDK when needed. Run `dotnet test XDeltaSharp.sln -c Release` from the repository root. The suite includes real xdelta3 and open-vcdiff fixtures. For matcher settings, implementation details, benchmark commands, and measurements, see the [encoder and benchmark notes](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md).
+
+Run `dotnet format whitespace XDeltaSharp.sln --verify-no-changes` to check formatting. The build compares the three libraries to their `PublicAPI.Shipped.txt` baselines. Record intentional additions in the corresponding `PublicAPI.Unshipped.txt` file.
+
+Run `python3 eng/test-packages.py` to build the three NuGet packages and their symbols, then compile and run the examples above against a fresh local feed. The file example uses the checked-in multi-window xdelta3 fixture with LZMA compression and BLAKE3 armor.

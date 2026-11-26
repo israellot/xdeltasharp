@@ -1,3 +1,4 @@
+using XDeltaSharp.Lzma;
 using Xunit;
 using static XDeltaSharp.Tests.WindowVectors;
 
@@ -7,6 +8,22 @@ public class WindowLimitTests
 {
     private const int MiB = 1024 * 1024;
     private static byte[] Run(int size) => Window(size, [42], [0, .. Integer(size)], []);
+
+    [Fact]
+    public void AllocatingDecoderDistinguishesPositionalOutputLimitFromNamedWindowLimit()
+    {
+        byte[] patch = Patch(Run(8), Run(8));
+        byte[] expected = Enumerable.Repeat((byte)42, 16).ToArray();
+
+        Assert.Equal(expected, Vcdiff.Decode([], patch));
+        Assert.Equal(expected, Vcdiff.Decode([], patch, maxWindowBytes: 8));
+        Assert.Equal(expected, Vcdiff.Decode([], patch, maxWindowBytes: 8, maxOutputBytes: 16));
+        Assert.Equal(expected, Vcdiff.Decode([], patch, 16, 8));
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, 8));
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, maxOutputBytes: 8));
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, maxWindowBytes: 7));
+        Assert.Throws<ArgumentOutOfRangeException>("maxWindowBytes", () => Vcdiff.Decode([], patch, maxWindowBytes: -1));
+    }
 
     [Fact]
     public void AcceptsExactly64MiB()
@@ -88,13 +105,63 @@ public class WindowLimitTests
         Assert.Equal(output.Length, output.Position);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InvalidStreamArgumentsIdentifyTheParameterBeforeConsumingInput(bool useLzma)
+    {
+        long Decode(Stream source, Stream patch, Stream destination) => useLzma
+            ? LzmaVcdiff.Decode(source, patch, destination)
+            : Vcdiff.Decode(source, patch, destination);
+
+        using var patch = new MemoryStream(Patch(), writable: false);
+        using var source = new MemoryStream();
+        using var destination = new MemoryStream();
+        using var writeOnly = new CheckingSink();
+
+        Assert.Throws<ArgumentNullException>("source", () => Decode(null!, patch, destination));
+        Assert.Throws<ArgumentNullException>("patch", () => Decode(source, null!, destination));
+        Assert.Throws<ArgumentNullException>("destination", () => Decode(source, patch, null!));
+        Assert.Throws<ArgumentException>("patch", () => Decode(source, writeOnly, destination));
+        Assert.Throws<ArgumentException>("destination", () => Decode(source, destination, patch));
+        Assert.Throws<ArgumentException>("patch", () => Decode(patch, patch, destination));
+        Assert.Throws<ArgumentException>("destination", () => Decode(source, destination, destination));
+        Assert.Throws<ArgumentException>("destination", () => Decode(destination, patch, destination));
+        Assert.Equal(0, patch.Position);
+        Assert.Equal(0, destination.Length);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailedPriorTargetWindowRestoresCursorsAndLeavesStreamsOpen(bool useLzma)
+    {
+        using var source = new MemoryStream("-abcd"u8.ToArray()) { Position = 1 };
+        using var patch = new MemoryStream(Patch(Window(4, [], [20], [0], 1, 4),
+            Window(4, [], [20], [0], 2, 4, checksum: 0)));
+        using var output = new MemoryStream();
+        output.WriteByte((byte)'+');
+
+        Assert.Throws<InvalidDataException>(() => useLzma
+            ? LzmaVcdiff.Decode(source, patch, output)
+            : Vcdiff.Decode(source, patch, output));
+
+        Assert.Equal(1, source.Position);
+        Assert.True(patch.CanRead);
+        Assert.Equal(5, output.Position);
+        output.WriteByte((byte)'!');
+        Assert.Equal("+abcd!"u8.ToArray(), output.ToArray());
+    }
+
     [Fact]
     public void WriteOnlyDestinationCanDecodeUntilAPriorTargetDictionaryIsNeeded()
     {
         byte[] patch = Patch(Run(8), Window(4, [], [20], [0], 2, 4));
+        using var input = new MemoryStream(patch);
         using var sink = new CheckingSink();
-        Assert.Throws<NotSupportedException>(() => Vcdiff.Decode(Stream.Null, new MemoryStream(patch), sink));
+        Assert.Throws<NotSupportedException>(() => Vcdiff.Decode(Stream.Null, input, sink));
         Assert.Equal(8, sink.VerifiedBytes);
+        Assert.True(input.Position < input.Length);
     }
 
     [Fact]

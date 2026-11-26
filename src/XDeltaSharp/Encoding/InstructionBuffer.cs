@@ -1,5 +1,6 @@
 // Managed adaptation of xdelta3 instruction buffering. See THIRD-PARTY-NOTICES.txt.
 using System.Buffers;
+using XDeltaSharp.Format;
 
 namespace XDeltaSharp.Encoding;
 
@@ -40,15 +41,16 @@ internal ref struct InstructionBuffer(Span<CopyMatch> scratch)
             while (i < _count && current.End > _items[i].WriteOffset)
             {
                 var next = _items[i];
+                // Skip the middle match if the following one reaches back to this boundary.
                 if (i + 1 < _count && _items[i + 1].WriteOffset <= current.End + 1)
                 {
                     i++;
                     continue;
                 }
 
-                int prefix = next.WriteOffset - current.WriteOffset;
-                int suffix = next.End - current.End;
-                if (prefix < 4 && suffix < 4)
+                int currentOnlyBytes = next.WriteOffset - current.WriteOffset;
+                int nextOnlyBytes = next.End - current.End;
+                if (currentOnlyBytes < DefaultCodeTable.MinFixedCopySize && nextOnlyBytes < DefaultCodeTable.MinFixedCopySize)
                 {
                     if (next.Length > current.Length) current = next;
                     i++;
@@ -57,13 +59,19 @@ internal ref struct InstructionBuffer(Span<CopyMatch> scratch)
 
                 // Preserve both matches when possible. Keep one size in the default table's
                 // immediate range (4..18) when dividing their overlap.
-                int split = Math.Clamp(current.WriteOffset + Math.Min(18, (next.End - current.WriteOffset) / 2),
+                int halfLength = (next.End - current.WriteOffset) / 2;
+                int split = Math.Clamp(current.WriteOffset + Math.Min(DefaultCodeTable.MaxFixedCopySize, halfLength),
                     next.WriteOffset, current.End);
-                split = Math.Clamp(split, current.WriteOffset + 4, next.End - 4);
+                split = Math.Clamp(split, current.WriteOffset + DefaultCodeTable.MinFixedCopySize,
+                    next.End - DefaultCodeTable.MinFixedCopySize);
                 int trim = split - next.WriteOffset;
                 current = current with { Length = split - current.WriteOffset };
-                _items[i] = next with { WriteOffset = split, Length = next.Length - trim,
-                    ReadOffset = next.ReadOffset < 0 ? -1 : next.ReadOffset + trim };
+                _items[i] = next with
+                {
+                    WriteOffset = split,
+                    Length = next.Length - trim,
+                    ReadOffset = next.ReadOffset < 0 ? CopyMatch.RunOffset : next.ReadOffset + trim
+                };
                 break;
             }
             if (!final && i == _count)
@@ -74,8 +82,10 @@ internal ref struct InstructionBuffer(Span<CopyMatch> scratch)
                 return;
             }
             writer.Add(target[Written..current.WriteOffset]);
-            if (current.ReadOffset < 0) writer.Run(target[current.WriteOffset], current.Length);
-            else writer.Copy(current.ReadOffset, current.Length);
+            if (current.ReadOffset < 0)
+                writer.Run(target[current.WriteOffset], current.Length);
+            else
+                writer.Copy(current.ReadOffset, current.Length);
             Written = current.End;
         }
         _items[i.._count].CopyTo(_items);

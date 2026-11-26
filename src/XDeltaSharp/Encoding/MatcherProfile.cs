@@ -1,11 +1,13 @@
 namespace XDeltaSharp.Encoding;
 
 // Matcher parameters from xdelta3 3.2.2, xdelta3-cfgs.h and the CLI level mapping.
-internal readonly record struct MatcherProfile(int SourceStep, int TargetChain, int LazyChain, int MaxLazy, int LongEnough)
+internal readonly record struct MatcherProfile(int SourceStep, int TargetCandidates, int LazyCandidates,
+    int LazyMatchLimit, int TargetStopLength)
 {
     internal const int DefaultLevel = 3;
     internal const int SourceSeed = 9;
-    internal const int TargetSeed = 4;
+    internal const int TargetSeed = sizeof(uint);
+    internal const int MinRunLength = 8;
 
     internal static MatcherProfile FromLevel(int compressionLevel) => compressionLevel switch
     {

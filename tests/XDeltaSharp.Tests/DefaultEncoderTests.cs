@@ -1,6 +1,5 @@
 using System.Buffers;
 using XDeltaSharp.Decoding;
-using XDeltaSharp.Encoding;
 using Xunit;
 using static XDeltaSharp.Tests.WindowVectors;
 
@@ -20,7 +19,6 @@ public class DefaultEncoderTests
         byte[] expected = Patch(Window(target.Length, target[..period],
             [(byte)(period + 1), 19, .. Integer(target.Length - period)], [0]));
         Assert.Equal(expected, Vcdiff.Encode([], target));
-        Assert.Equal(expected, Vcdiff.Encode([], target, VcdiffEncodeMode.Default));
         AssertDecodes([], expected, target);
         foreach (var memory in new[] { MemoryMode.Default, MemoryMode.LessMemory })
         {
@@ -28,30 +26,7 @@ public class DefaultEncoderTests
             var sink = new ArrayBufferWriter<byte>();
             Vcdiff.Encode([], target, sink, memory);
             Assert.Equal(expected, sink.WrittenSpan.ToArray());
-            sink.ResetWrittenCount();
-            Vcdiff.Encode([], target, sink, VcdiffEncodeMode.Default, memory);
-            Assert.Equal(expected, sink.WrittenSpan.ToArray());
         }
-        Assert.True(Vcdiff.Encode([], target, VcdiffEncodeMode.Fast).Length > target.Length);
-    }
-
-    [Theory]
-    [InlineData(24, 100)]
-    [InlineData(400, 400)]
-    public void FullSourceSearchFindsLaterLongerMatch(int length, int duplicates)
-    {
-        byte[] target = new byte[length];
-        new Random(18).NextBytes(target);
-        byte[] source = new byte[duplicates * 8 + length];
-        for (int i = 0; i < duplicates; i++) target.AsSpan(0, 8).CopyTo(source.AsSpan(8 * i));
-        target.CopyTo(source, duplicates * 8);
-        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Exhaustive);
-        var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
-        Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
-        Assert.True(window.Data.IsEmpty);
-        Assert.True(window.Addresses.Length <= 2);
-        Assert.Equal(2 + (length > 127 ? 1 : 0), window.Instructions.Length);
-        AssertDecodes(source, patch, target);
     }
 
     [Fact]
@@ -64,82 +39,6 @@ public class DefaultEncoderTests
         var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
         Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
         Assert.True(window.Data.IsEmpty);
-        Assert.True(patch.Length < Vcdiff.Encode(source, target, VcdiffEncodeMode.Fast).Length);
-        AssertDecodes(source, patch, target);
-    }
-
-    [Fact]
-    public void EarlierTargetCandidateBeatsRecentShorterOccurrence()
-    {
-        byte[] word = "ABCDthe first occurrence has a long suffix"u8.ToArray();
-        byte[] target = [.. word, .. "!ABCD?ABCD#"u8, .. word];
-        byte[] patch = Vcdiff.Encode([], target, VcdiffEncodeMode.Exhaustive);
-        var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
-        Assert.True(reader.TryReadWindow(0, 0, target.Length, out var window));
-        Assert.Equal(0, window.Addresses[^1]);
-        Assert.Equal(word.Length, window.Instructions[^1]);
-        AssertDecodes([], patch, target);
-    }
-
-    [Theory]
-    [InlineData(MemoryMode.Default)]
-    [InlineData(MemoryMode.LessMemory)]
-    public void TargetSearchFindsAnInteriorCandidateBeyond256Collisions(MemoryMode memory)
-    {
-        const int probe = 400 * 16;
-        byte[] target = new byte[probe + 32];
-        new Random(138).NextBytes(target);
-        for (int i = 0; i < probe; i += 16) "seed"u8.CopyTo(target.AsSpan(i));
-        target.AsSpan(80, 32).CopyTo(target.AsSpan(probe));
-        var writer = new WindowWriter(0, 0, stackalloc byte[32], stackalloc byte[32], stackalloc byte[32], []);
-        scoped TargetMatchFinder history = new(target, [], memory);
-        try
-        {
-            writer.Add(target.AsSpan(0, probe));
-            WindowChoice best = default;
-            history.Search(probe, 0, in writer, ref best, writer.CopySavingsUpperBound(target.Length, probe));
-            Assert.Equal(80, best.Address);
-            Assert.Equal(32, best.Length);
-        }
-        finally
-        {
-            history.Dispose();
-            writer.Dispose();
-        }
-    }
-
-    [Fact]
-    public void CheaperCachedAddressCanBeatASlightlyLongerCopy()
-    {
-        byte[] window = new byte[80];
-        new Random(65).NextBytes(window);
-        byte[] source = new byte[100000];
-        window.AsSpan(8, 13).CopyTo(source.AsSpan(40000));
-        window.AsSpan(8, 12).CopyTo(source.AsSpan(80000));
-        using var finder = new SourceMatchFinder(source, window.Length, MemoryMode.Default, [], VcdiffEncodeMode.Default);
-        var writer = new WindowWriter(0, source.Length, stackalloc byte[32], stackalloc byte[32],
-            stackalloc byte[32], stackalloc int[768]);
-        try
-        {
-            writer.Copy(80000, 8);
-            WindowChoice best = default;
-            finder.Search(window, 8, 8, in writer, ref best, int.MaxValue);
-            Assert.Equal(80000, best.Address);
-            Assert.Equal(12, best.Length);
-        }
-        finally { writer.Dispose(); }
-    }
-
-    [Fact]
-    public void ShortTargetCopyDoesNotHideALongerUnalignedSourceMatch()
-    {
-        byte[] source = new byte[512];
-        new Random(91).NextBytes(source);
-        byte[] target = [.. source[7..16], 255, .. source[7..200]];
-        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Exhaustive);
-        var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
-        Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
-        Assert.Equal(Integer(193), window.Instructions[^2..].ToArray());
         AssertDecodes(source, patch, target);
     }
 
@@ -171,19 +70,6 @@ public class DefaultEncoderTests
                 AssertDecodes(source, patch, target);
             }
         }
-    }
-
-    [Fact]
-    public void IndexesPositionsPassedBySourceCopyAndRun()
-    {
-        byte[] source = "an entirely original block copied from the external dictionary"u8.ToArray();
-        byte[] target = [.. source, .. "----"u8, .. source[^8..], .. "----"u8];
-        byte[] patch = Vcdiff.Encode(source, target, VcdiffEncodeMode.Exhaustive);
-        var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
-        Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
-        Assert.Equal(new byte[] { (byte)'-' }, window.Data.ToArray());
-        Assert.Equal(2, window.Addresses.Length);
-        AssertDecodes(source, patch, target);
     }
 
     [Fact]
@@ -223,5 +109,116 @@ public class DefaultEncoderTests
         long bytes = GC.GetAllocatedBytesForCurrentThread() - start;
         Assert.Equal(0, bytes);
         Assert.Equal(target, Vcdiff.Decode([], sink.WrittenSpan));
+    }
+
+    [Fact]
+    public void EmitsBaselineWindowsForEmptyLiteralRunAndSourceCopy()
+    {
+        AssertPatch([], [], Patch(Window(0, [], [], [])));
+        AssertPatch([], "abc"u8.ToArray(), Patch(Window(3, "abc"u8.ToArray(), [4], [])));
+        AssertPatch([], "xxx"u8.ToArray(), Patch(Window(3, "xxx"u8.ToArray(), [4], [])));
+        AssertPatch([], new byte[256], Patch(Window(256, [0], [0, .. Integer(256)], [])));
+        byte[] source = "0123456789abcdef"u8.ToArray();
+        AssertPatch(source, source, Patch(Window(16, [], [32], [0], 1, 16)));
+    }
+
+    [Fact]
+    public void SmallCopyPaysForItsDictionaryHeaderOrFallsBackToAdd()
+    {
+        byte[] source = new byte[1500];
+        "abcd"u8.CopyTo(source.AsSpan(1400));
+        AssertPatch(source, "abcd"u8.ToArray(), Patch(Window(4, "abcd"u8.ToArray(), [5], [])));
+    }
+
+    [Fact]
+    public void HandlesUnalignedSourceAndBackwardExtension()
+    {
+        byte[] source = Bytes(1024);
+        byte[] target = [123, .. source[3..95], 21];
+        byte[] patch = Vcdiff.Encode(source, target);
+        AssertDecodes(source, patch, target);
+        var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
+        Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
+        Assert.Equal(new byte[] { 123, 21 }, window.Data.ToArray());
+        Assert.Equal(new byte[] { 3 }, window.Addresses.ToArray());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(32)]
+    [InlineData(2048)]
+    [InlineData(2049)]
+    [InlineData(524288)]
+    [InlineData(524289)]
+    public void CompactTableBoundariesAndDeterministicSinkOutput(int length)
+    {
+        byte[] source = Bytes(length);
+        byte[] target = [.. source.AsSpan(length / 2), 5, 6, 7, .. source.AsSpan(0, length / 2)];
+        AssertPatch(source, target, Vcdiff.Encode(source, target));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void SplitsAtEightMiBAndRestartsEachWindow(int extra)
+    {
+        const int size = 8 << 20;
+        byte[] target = new byte[size + extra];
+        byte[] patch = Vcdiff.Encode([], target);
+        int firstSize = Math.Min(size, target.Length);
+        var first = Window(firstSize, [0], [0, .. Integer(firstSize)], []);
+        Assert.Equal(extra > 0 ? Patch(first, Window(1, [0], [2], [])) : Patch(first), patch);
+        Assert.Equal(target, Vcdiff.Decode([], patch));
+    }
+
+    [Theory]
+    [Trait("Category", "Allocation")]
+    [InlineData(16, MemoryMode.Default)]
+    [InlineData(64, MemoryMode.Default)]
+    [InlineData(16, MemoryMode.LessMemory)]
+    [InlineData(64, MemoryMode.LessMemory)]
+    public void SmallCopyEncodingOnlyAllocatesTheReturnedArray(int copyLength, MemoryMode memoryMode)
+    {
+        byte[] source = Bytes(128);
+        byte[] target = [21, .. source.AsSpan(8, copyLength), 42];
+        var sink = new ArrayBufferWriter<byte>(128);
+        byte[] expected = Vcdiff.Encode(source, target, memoryMode);
+        Vcdiff.Encode(source, target, sink, memoryMode);
+        long start = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++)
+        {
+            sink.ResetWrittenCount();
+            Vcdiff.Encode(source, target, sink, memoryMode);
+        }
+        long writerBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        start = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++) GC.KeepAlive(Vcdiff.Encode(source, target, memoryMode));
+        long allocatingBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        start = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++) GC.KeepAlive(new byte[expected.Length]);
+        long outputArrayBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        Assert.Equal(0, writerBytes);
+        Assert.Equal(outputArrayBytes, allocatingBytes);
+        Assert.Equal(1, expected[5]); // A source COPY was actually used.
+    }
+
+    private static byte[] Bytes(int length)
+    {
+        var bytes = new byte[length];
+        new Random(17).NextBytes(bytes);
+        return bytes;
+    }
+
+    private static void AssertPatch(byte[] source, byte[] target, byte[] expected)
+    {
+        Assert.Equal(expected, Vcdiff.Encode(source, target));
+        var sink = new ArrayBufferWriter<byte>();
+        sink.Write("prefix"u8);
+        Vcdiff.Encode(source, target, sink);
+        Assert.Equal("prefix"u8.ToArray(), sink.WrittenSpan[..6].ToArray());
+        Assert.Equal(expected, sink.WrittenSpan[6..].ToArray());
+        AssertDecodes(source, expected, target);
     }
 }

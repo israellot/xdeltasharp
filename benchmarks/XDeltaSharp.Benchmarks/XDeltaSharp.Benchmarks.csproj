@@ -1,11 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/XDeltaSharp/XDeltaSharp.csproj" />
+    <ProjectReference Include="../../src/XDeltaSharp.Lzma/XDeltaSharp.Lzma.csproj" />
+    <ProjectReference Include="../../src/XDeltaSharp.Blake3/XDeltaSharp.Blake3.csproj" />
+    <None Include="../../tests/XDeltaSharp.Tests/Fixtures/*.txt;../../tests/XDeltaSharp.Tests/Fixtures/*.vcdiff"
+          Link="Fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

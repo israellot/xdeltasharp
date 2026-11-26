@@ -2,9 +2,15 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using XDeltaSharp;
+using XDeltaSharp.Benchmarks;
 
 // Use Release. Report the median of seven batches after warm-up, excluding fixture setup and validation.
 Console.Error.WriteLine($"{RuntimeInformation.FrameworkDescription}, {RuntimeInformation.ProcessArchitecture}");
+if (args is ["--decode"])
+{
+    DecoderBenchmarks.Run();
+    return;
+}
 if (args is ["--profile-default", var sourcePath, var targetPath])
 {
     ProfileDefault(File.ReadAllBytes(sourcePath), File.ReadAllBytes(targetPath));
@@ -15,27 +21,23 @@ if (args is ["--levels", var levelSource, var levelTarget])
     BenchmarkLevels(File.ReadAllBytes(levelSource), File.ReadAllBytes(levelTarget));
     return;
 }
-Console.WriteLine("Case,Search mode,Memory mode,Source B,Target B,Patch B,API,ns/op,Allocated B/op");
+const string encoderHeader = "Case,Level,Memory mode,Source B,Target B,Patch B,API,ns/op,Allocated B/op";
 if (args is ["--afterburner", var originalFile, var targetFile])
 {
     var source = File.ReadAllBytes(originalFile);
     var target = File.ReadAllBytes(targetFile);
-    foreach (var mode in Enum.GetValues<VcdiffEncodeMode>())
+    Console.WriteLine(encoderHeader);
+    for (int level = 0; level <= 9; level++)
     {
-        MeasureMode("ordinary", source, target, mode, MemoryMode.Default);
-        MeasureMode("afterburner", source, target, mode, MemoryMode.Default, optimize: true);
+        MeasureEncoder("ordinary", source, target, level, MemoryMode.Default);
+        MeasureEncoder("afterburner", source, target, level, MemoryMode.Default, optimize: true);
     }
     return;
 }
-if (args is ["--fast-only", var fastSource, var fastTarget])
-{
-    var source = File.ReadAllBytes(fastSource);
-    var target = File.ReadAllBytes(fastTarget);
-    foreach (var memory in new[] { MemoryMode.Default, MemoryMode.LessMemory })
-        MeasureMode("file pair", source, target, VcdiffEncodeMode.Fast, memory, warmupMilliseconds: 1500);
-    return;
-}
+if (args.Length != 0 && (args.Length != 2 || args[0].StartsWith("--", StringComparison.Ordinal)))
+    throw new ArgumentException("Pass a source and target pair, --decode, or --levels, --afterburner, or --profile-default followed by the pair.");
 
+Console.WriteLine(encoderHeader);
 foreach (int size in new[] { 0, 4, 8, 16, 32, 64, 256, 2047, 2048, 524287, 524288 })
 {
     byte[] source = Bytes(size);
@@ -63,10 +65,8 @@ for (int offset = 0; offset < records.Length; offset += 32)
     records.AsSpan(offset, 32).CopyTo(reversed.AsSpan(records.Length - offset - 32));
 }
 Benchmark("reordered duplicate seeds", records, reversed);
-if (args.Length == 2)
-    Benchmark("file pair", File.ReadAllBytes(args[0]), File.ReadAllBytes(args[1]));
-else if (args.Length != 0)
-    throw new ArgumentException("Pass source and target paths together.");
+if (args is [var originalPath, var updatedPath])
+    Benchmark("file pair", File.ReadAllBytes(originalPath), File.ReadAllBytes(updatedPath));
 
 static byte[] Bytes(int length)
 {
@@ -133,18 +133,14 @@ static void ProfileDefault(byte[] source, byte[] target)
 
 static void Benchmark(string name, byte[] source, byte[] target)
 {
-    foreach (var mode in new[] { VcdiffEncodeMode.Fast, VcdiffEncodeMode.Default })
-    {
-        MeasureMode(name, source, target, mode, MemoryMode.Default);
-        MeasureMode(name, source, target, mode, MemoryMode.LessMemory);
-    }
+    MeasureEncoder(name, source, target, 3, MemoryMode.Default);
+    MeasureEncoder(name, source, target, 3, MemoryMode.LessMemory);
 }
 
-static void MeasureMode(string name, byte[] source, byte[] target, VcdiffEncodeMode mode, MemoryMode memoryMode,
-    int warmupMilliseconds = 150, bool optimize = false)
+static void MeasureEncoder(string name, byte[] source, byte[] target, int level, MemoryMode memoryMode, bool optimize = false)
 {
-    byte[] EncodeArray() => optimize ? Vcdiff.EncodeOptimized(source, target, mode, memoryMode) :
-        Vcdiff.Encode(source, target, mode, memoryMode);
+    byte[] EncodeArray() => optimize ? Vcdiff.EncodeOptimized(source, target, level, memoryMode) :
+        Vcdiff.Encode(source, target, level, memoryMode);
     byte[] reference = EncodeArray();
     if (!Vcdiff.Decode(source, reference).AsSpan().SequenceEqual(target))
         throw new InvalidDataException("Round trip failed.");
@@ -152,8 +148,8 @@ static void MeasureMode(string name, byte[] source, byte[] target, VcdiffEncodeM
     void EncodeInto()
     {
         writer.ResetWrittenCount();
-        if (optimize) Vcdiff.EncodeOptimized(source, target, writer, mode, memoryMode);
-        else Vcdiff.Encode(source, target, writer, mode, memoryMode);
+        if (optimize) Vcdiff.EncodeOptimized(source, target, writer, level, memoryMode);
+        else Vcdiff.Encode(source, target, writer, level, memoryMode);
     }
 
     EncodeInto();
@@ -163,31 +159,8 @@ static void MeasureMode(string name, byte[] source, byte[] target, VcdiffEncodeM
 
     void Measure(string api, Action encode)
     {
-        int batch = 1;
-        while (true)
-        {
-            long start = Stopwatch.GetTimestamp();
-            for (int i = 0; i < batch; i++) encode();
-            if (Stopwatch.GetElapsedTime(start).TotalMilliseconds >= 15 || batch >= 1 << 20) break;
-            batch *= 2;
-        }
-        long warmup = Stopwatch.GetTimestamp();
-        do
-        {
-            for (int j = 0; j < batch; j++) encode();
-        } while (Stopwatch.GetElapsedTime(warmup).TotalMilliseconds < warmupMilliseconds);
-        double[] timings = new double[7];
-        long allocated = 0;
-        for (int i = 0; i < timings.Length; i++)
-        {
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            long start = Stopwatch.GetTimestamp();
-            for (int j = 0; j < batch; j++) encode();
-            timings[i] = Stopwatch.GetElapsedTime(start).TotalNanoseconds / batch;
-            allocated += GC.GetAllocatedBytesForCurrentThread() - before;
-        }
-        Array.Sort(timings);
+        var (nanoseconds, allocated) = BenchmarkTimer.Measure(encode, warmupMilliseconds: 150);
         Console.WriteLine(FormattableString.Invariant(
-            $"{name},{mode},{memoryMode},{source.Length},{target.Length},{reference.Length},{api},{timings[3]:F1},{(double)allocated / batch / timings.Length:F1}"));
+            $"{name},{level},{memoryMode},{source.Length},{target.Length},{reference.Length},{api},{nanoseconds:F1},{allocated:F1}"));
     }
 }

@@ -46,7 +46,7 @@ Moby-Dick uses the DeltaSharp fixtures `pg15.txt` (SHA-256 `7da8e626fa38865c93f4
 
 ## Reproducing a variant
 
-Apply the [experimental patch](../Experiments/FastSourceBlockSize/block-size.patch) to an isolated copy of `1f9f703`. It adds benchmark-only build properties. Use the original checkout for the baseline. The following example measures a 16-byte block and 16-byte seed on a supplied file pair. Set `FastBenchmarkWideSeed=false` for the spacing-only control. For this comparison read the `Fast,Default,writer` result.
+Apply the [experimental patch](https://github.com/israellot/xdeltasharp/blob/f405b3ea3c0ddcd2e2dbb1e57cd634dd07c88693/benchmarks/Experiments/FastSourceBlockSize/block-size.patch) to an isolated copy of `1f9f703`. It adds benchmark-only build properties. Use the original checkout for the baseline. The following example measures a 16-byte block and 16-byte seed on a supplied file pair. Set `FastBenchmarkWideSeed=false` for the spacing-only control. For this comparison read the `Fast,Default,writer` result.
 
 ```sh
 git apply --unidiff-zero /path/to/block-size.patch

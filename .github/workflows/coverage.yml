@@ -16,15 +16,24 @@ concurrency:
 jobs:
   coverage:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_SDK: 8.0.428
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/release-dotnet
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: ${{ env.RELEASE_SDK }}
+      - name: Check release SDK
+        run: test "$(dotnet --version)" = "$RELEASE_SDK"
       - run: dotnet build XDeltaSharp.sln -c Release
+      - run: dotnet format whitespace XDeltaSharp.sln --no-restore --verify-no-changes
+      - name: Verify NuGet packages and run their examples
+        run: python3 eng/test-packages.py
       - name: Test allocation counts without instrumentation
         run: >-
           dotnet test tests/XDeltaSharp.Tests/XDeltaSharp.Tests.csproj -c Release --no-build
@@ -45,6 +54,18 @@ jobs:
           name: coverage-report
           path: coverage-report/
           if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet test XDeltaSharp.sln -c Debug -- xUnit.ParallelizeTestCollections=false
 
   update-badges:
     needs: coverage

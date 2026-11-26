@@ -36,7 +36,7 @@ Apple M3 Max, .NET 8.0.25 Release. The harness loaded inputs once and measured i
 
 ## Reproduce
 
-Apply the [experimental patch](../Experiments/FastSourceBlockSize/coarse-to-fine.patch) in an isolated checkout of commit `19ca50a`. The plain checkout provides the 8-byte baseline. The following example selects 64-byte minimum matches and a target step of 3. The default experiment settings are 32 and 1. The reported measurements use the Fast, Default-memory, writer path.
+Apply the [experimental patch](https://github.com/israellot/xdeltasharp/blob/f405b3ea3c0ddcd2e2dbb1e57cd634dd07c88693/benchmarks/Experiments/FastSourceBlockSize/coarse-to-fine.patch) in an isolated checkout of commit `19ca50a`. The plain checkout provides the 8-byte baseline. The following example selects 64-byte minimum matches and a target step of 3. The default experiment settings are 32 and 1. The reported measurements use the Fast, Default-memory, writer path.
 
 ```sh
 git apply --unidiff-zero /path/to/coarse-to-fine.patch

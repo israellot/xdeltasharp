@@ -93,12 +93,11 @@ public class UpstreamWireTests
         }
         Assert.True(reader.IsEmpty);
 
-        // The file/window framing reader has its own integer parser. Use empty segments
-        // to exercise 64-bit offsets without allocating a dictionary of that size.
+        // Empty segments exercise 64-bit offsets without allocating a dictionary of that size.
         byte[] patch = Patch(vectors.Select(v => Window(0, [], [], [], 1, 0, v.Value)).ToArray());
         using var input = new MemoryStream(patch);
         CheckWindowOffsets(new WindowReader(patch, 0));
-        CheckWindowOffsets(new WindowReader(input, 0));
+        CheckWindowOffsets(new WindowReader(input, 0, Array.MaxLength));
         void CheckWindowOffsets(WindowReader windows)
         {
             foreach (var (value, _) in vectors)
@@ -108,5 +107,20 @@ public class UpstreamWireTests
             }
             Assert.False(windows.TryReadWindow(long.MaxValue, 0, 0, out _));
         }
+    }
+
+    [Fact]
+    public void RejectsAnIntegerOnePastTheSupportedRangeInHeadersAndSections()
+    {
+        // 2^63 in most-significant-digit-first base 128.
+        byte[] digits = [0x81, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00];
+        Assert.Contains("integer exceeds", Assert.Throws<InvalidDataException>(() =>
+            new SectionReader(digits).ReadInteger()).Message);
+
+        byte[] patch = Patch([1, 0, .. digits]); // Source segment offset is the next integer.
+        Assert.Contains("integer exceeds", Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch)).Message);
+        using var input = new MemoryStream(patch);
+        Assert.Contains("integer exceeds", Assert.Throws<InvalidDataException>(() =>
+            Vcdiff.Decode(Stream.Null, input, Stream.Null)).Message);
     }
 }

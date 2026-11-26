@@ -1,0 +1,8 @@
+#nullable enable
+XDeltaSharp.Lzma.LzmaVcdiff
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.IO.Stream! source, System.IO.Stream! patch, System.IO.Stream! destination, XDeltaSharp.VcdiffArmor armor, long maxOutputBytes = 9223372036854775807, int maxWindowBytes = 67108864) -> long
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.IO.Stream! source, System.IO.Stream! patch, System.IO.Stream! destination, long maxOutputBytes = 9223372036854775807, int maxWindowBytes = 67108864) -> long
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch, System.Span<byte> destination, XDeltaSharp.VcdiffArmor armor, int maxWindowBytes = 67108864) -> int
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch, System.Span<byte> destination, int maxWindowBytes = 67108864) -> int
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch, XDeltaSharp.VcdiffArmor armor, int maxOutputBytes = 2147483647, int maxWindowBytes = 67108864) -> byte[]!
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch, int maxOutputBytes = 2147483647, int maxWindowBytes = 67108864) -> byte[]!

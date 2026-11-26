@@ -1,6 +1,6 @@
 # Window afterburner on Moby-Dick and SQLite
 
-Each pair compares the same encoder and memory settings with and without the optional operation pass. Sizes include the file header and all window framing. Times are milliseconds per encode into a reused destination.
+These historical measurements cover level 3 (listed as Default) and the retired Fast and Exhaustive matchers. Each pair compares the same encoder and memory settings with and without the optional operation pass. Sizes include the file header and all window framing. Times are milliseconds per encode into a reused destination.
 
 | Input | Mode | Original bytes | Optimized bytes | Size change | Original ms | Optimized ms |
 |---|---|---:|---:|---:|---:|---:|
@@ -19,8 +19,8 @@ Each pair compares the same encoder and memory settings with and without the opt
 
 Apple M3 Max, .NET 8.0.25 Release, default memory policy. Inputs came from the DeltaSharp Moby-Dick fixtures and the [SQLite release executable measurements](Fast-release-binaries-net8-arm64.md). Each encoder ran in both measurement orders, warmed up for at least 350 ms, and timed seven batches per order. The table gives the average of the two batch medians. File I/O, input setup, and output verification were outside the timed region. All twelve optimized files were independently decoded with xdelta3 3.2.2 and open-vcdiff and compared byte-for-byte with their targets.
 
-To compare the pass on another input pair, use the focused benchmark.
+To measure the pass on another input pair at levels 0 through 9, run the current benchmark.
 
 ```sh
-dotnet run -c Release --project benchmarks/VCDiffSharp.Benchmarks -- --afterburner source.bin target.bin
+dotnet run -c Release --project benchmarks/XDeltaSharp.Benchmarks -- --afterburner source.bin target.bin
 ```
