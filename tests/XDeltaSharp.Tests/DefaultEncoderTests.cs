@@ -205,6 +205,7 @@ public class DefaultEncoderTests
     }
 
     [Theory]
+    [Trait("Category", "Allocation")]
     [InlineData(32)]
     [InlineData(128)]
     public void SmallWriterCallsAllocateNoManagedBytes(int length)

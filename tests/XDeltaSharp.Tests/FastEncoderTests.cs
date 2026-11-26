@@ -332,6 +332,7 @@ public class FastEncoderTests
     }
 
     [Theory]
+    [Trait("Category", "Allocation")]
     [InlineData(16, MemoryMode.Default)]
     [InlineData(64, MemoryMode.Default)]
     [InlineData(16, MemoryMode.LessMemory)]

@@ -103,6 +103,7 @@ public class WindowOptimizerTests
     }
 
     [Fact]
+    [Trait("Category", "Allocation")]
     public void SmallOptimizedWriterCallsDoNotAllocateAfterWarmup()
     {
         var source = "abcdefghabcdefghZYXWVUTS12345678"u8.ToArray();

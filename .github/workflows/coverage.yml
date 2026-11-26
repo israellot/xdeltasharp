@@ -25,9 +25,14 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - run: dotnet build XDeltaSharp.sln -c Release
+      - name: Test allocation counts without instrumentation
+        run: >-
+          dotnet test tests/XDeltaSharp.Tests/XDeltaSharp.Tests.csproj -c Release --no-build
+          --filter 'Category=Allocation' -- xUnit.ParallelizeTestCollections=false
       - name: Measure library coverage
         run: >-
           dotnet test tests/XDeltaSharp.Tests/XDeltaSharp.Tests.csproj -c Release --no-build
+          --filter 'Category!=Allocation'
           --settings tests/XDeltaSharp.Tests/coverage.runsettings --results-directory coverage
       - name: Generate HTML and badges
         run: |
