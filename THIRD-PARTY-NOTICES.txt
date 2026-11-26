@@ -2,9 +2,9 @@ xdelta3 3.2.2
 Copyright 2016 Joshua MacDonald
 https://github.com/jmacd/xdelta/tree/v3.2.2/xdelta3
 
-VCDiffSharp's managed level presets and overlap-resolution logic adapt techniques
+XDeltaSharp's managed level presets and overlap-resolution logic adapt techniques
 from xdelta3-cfgs.h, xdelta3-main.h and xdelta3.c. The C# implementation uses
-VCDiffSharp's own source index, instruction storage and VCDIFF writer.
+XDeltaSharp's own source index, instruction storage and VCDIFF writer.
 
 Apache License
 Version 2.0, January 2004

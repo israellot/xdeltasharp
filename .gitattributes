@@ -1,2 +1,2 @@
-tests/VCDiffSharp.Tests/Fixtures/*.txt text eol=lf
+tests/XDeltaSharp.Tests/Fixtures/*.txt text eol=lf
 *.vcdiff binary

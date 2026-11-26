@@ -1,11 +1,11 @@
-# VCDiffSharp
+# XDeltaSharp
 
-A .NET 8 library for creating and applying RFC 3284 version 0 patches with the default code table and uncompressed sections.
+The `xdelta` NuGet package is a .NET 8 library for creating and applying RFC 3284 version 0 patches with the default code table. The core writes uncompressed sections. The optional `xdelta.Lzma` package also reads xdelta3 patches with LZMA secondary compression.
 
 ## Public API
 
 ```csharp
-using VCDiffSharp;
+using XDeltaSharp;
 
 byte[] patch = Vcdiff.Encode(source, target);
 byte[] restored = Vcdiff.Decode(source, patch, maxOutputBytes: 256 * 1024 * 1024);
@@ -25,7 +25,23 @@ The stream overload reads the patch sequentially and uses 64-bit file offsets an
 
 The decoder handles ADD, RUN, all nine COPY address modes, paired instructions, and overlapping copies inside the current window. Each window can select a dictionary from the source file or previously reconstructed target output. Pass an empty source for a patch that uses only target data.
 
-Malformed patches and output above `maxOutputBytes` raise `InvalidDataException`. An undersized destination raises `ArgumentException`. Custom code tables, secondary compression, xdelta3 application headers and checksums, and open-vcdiff extension versions raise `NotSupportedException`.
+All decode overloads accept xdelta3 patches created with `-S none`. They skip the length-prefixed application header as opaque metadata, including filenames and BLAKE3 armor, and verify each Adler-32 checksum against the reconstructed target window. The stream overload verifies the window before writing it.
+
+Checksum mismatches, malformed patches, and output above `maxOutputBytes` raise `InvalidDataException`. An undersized destination raises `ArgumentException`. Custom code tables, unsupported secondary compressors, and open-vcdiff extension versions raise `NotSupportedException`.
+
+### Decoding default xdelta3 patches
+
+Reference `xdelta.Lzma` and use `LzmaVcdiff.Decode` for patches created by LZMA-enabled xdelta3 builds. It accepts both LZMA and uncompressed patches with the same output limits and checksum verification as the core.
+
+```csharp
+using XDeltaSharp.Lzma;
+
+byte[] restored = LzmaVcdiff.Decode(source, patch);
+int written = LzmaVcdiff.Decode(source, patch, destination.AsSpan());
+long totalWritten = LzmaVcdiff.Decode(sourceStream, patchStream, outputStream);
+```
+
+The optional package references SharpCompress for managed LZMA2 decoding. It keeps separate dictionaries for data, instructions, and COPY addresses across windows. Each LZMA dictionary and each expanded section is limited to 64 MiB. [SharpCompress on NuGet](https://www.nuget.org/packages/SharpCompress)
 
 ## Structure
 
@@ -43,7 +59,7 @@ Malformed patches and output above `maxOutputBytes` raise `InvalidDataException`
 | `Format/AddressCache` | Resolve COPY addresses during decoding using per-window NEAR and SAME caches. |
 | `Format/DefaultCodeTable` | Describe the single and paired instructions represented by each of the 256 default opcodes. |
 
-Run `dotnet test -c Release` for the [RFC 3284](https://www.rfc-editor.org/rfc/rfc3284.html) vectors, malformed inputs, and [independent xdelta3 and open-vcdiff fixtures](tests/VCDiffSharp.Tests/Fixtures/README.md).
+Run `dotnet test -c Release` for the [RFC 3284](https://www.rfc-editor.org/rfc/rfc3284.html) vectors, malformed inputs, and [independent xdelta3 and open-vcdiff fixtures](tests/XDeltaSharp.Tests/Fixtures/README.md).
 
 ## Encoding levels
 
@@ -92,7 +108,7 @@ The pass re-encodes its candidate with fresh address caches and opcode pairing. 
 Run the Release benchmark from the repository root.
 
 ```sh
-dotnet run -c Release --project benchmarks/VCDiffSharp.Benchmarks
+dotnet run -c Release --project benchmarks/XDeltaSharp.Benchmarks
 ```
 
 Optionally append two file paths after `--` to include a source/target pair. The harness checks the reconstructed bytes and reports median time per call, managed allocations per call, and patch size for both public output paths. The writer measurement reuses a preallocated destination. The recorded file pair uses DeltaSharp’s Moby-Dick editions, pg15.txt and pg2701.txt. [Previous full-chain Default and Fast on .NET 8 Arm64](benchmarks/Results/Default-vs-Fast-net8-arm64.csv) · [Fast memory mode comparison](benchmarks/Results/Fast-memory-modes-net8-arm64.csv) · [Original collision-chain baseline](benchmarks/Results/Fast-collision-chains-net8-arm64.csv) · [Earlier single-candidate baseline](benchmarks/Results/Fast-net8-arm64.csv)

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <PackageId>xdelta</PackageId>
+    <Description>Managed .NET library for creating and applying VCDIFF patches.</Description>
+    <RepositoryUrl>https://github.com/israellot/xdeltasharp</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="XDeltaSharp.Tests" />
+    <InternalsVisibleTo Include="XDeltaSharp.Lzma" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>
