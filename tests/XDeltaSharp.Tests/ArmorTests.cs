@@ -5,6 +5,8 @@ namespace XDeltaSharp.Tests;
 
 public class ArmorTests
 {
+    private const string EmptyHash = "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262";
+
     private static byte[] Fixture(string name) =>
         File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
 
@@ -58,13 +60,68 @@ public class ArmorTests
     [Fact]
     public void TargetOnlyArmorUsesLastHashInFilenameAndHashesEmptyOutput()
     {
-        const string emptyHash = "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262";
-        byte[] header = System.Text.Encoding.ASCII.GetBytes($"file#name#{emptyHash}/");
-        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 4, (byte)header.Length, .. header];
+        byte[] patch = WithHeader($"file#name#{EmptyHash}/");
         Assert.Empty(Vcdiff.Decode([], patch, armor: Blake3Armor.Verify));
+        Assert.Empty(Vcdiff.Decode([], patch, armor: Blake3Armor.Require));
         patch[^2] = (byte)'0';
         Assert.Throws<InvalidDataException>(() =>
             Vcdiff.Decode(Stream.Null, new ShortReadPatch(patch), Stream.Null, armor: Blake3Armor.Verify));
+    }
+
+    [Fact]
+    public void RequiredArmorVerifiesBothDigestsFromXdelta3()
+    {
+        byte[] source = Fixture("source.txt"), target = Fixture("target.txt"), patch = Fixture("xdelta3-checksum.vcdiff");
+        Assert.Equal(target, Vcdiff.Decode(source, patch, armor: Blake3Armor.Require));
+        using var output = new MemoryStream();
+        Assert.Equal(target.Length, Vcdiff.Decode(new MemoryStream(source), new ShortReadPatch(patch), output, Blake3Armor.Require));
+        Assert.Equal(target, output.ToArray());
+
+        source[0] ^= 1;
+        Assert.Contains("source digest mismatch", Assert.Throws<InvalidDataException>(() =>
+            Vcdiff.Decode(source, patch, armor: Blake3Armor.Require)).Message);
+        source[0] ^= 1;
+        int digit = Array.IndexOf(patch, (byte)'#') + 1;
+        patch[digit] = patch[digit] == '0' ? (byte)'1' : (byte)'0';
+        Assert.Contains("target digest mismatch", Assert.Throws<InvalidDataException>(() =>
+            Vcdiff.Decode(source, patch, armor: Blake3Armor.Require)).Message);
+    }
+
+    [Theory]
+    [InlineData(null, "target")]
+    [InlineData("legacy/", "target")]
+    [InlineData("file#bad/", "target")]
+    [InlineData("file#" + EmptyHash + "//source", "target")]
+    [InlineData("file#" + EmptyHash + "//source/", "source")]
+    public void RequiredArmorRejectsMissingDigestsAcrossOutputTypes(string? metadata, string missing)
+    {
+        byte[] patch = metadata == null ? WindowVectors.Patch() : WithHeader(metadata);
+        string expected = $"BLAKE3 {missing} digest";
+        Assert.Contains(expected, Assert.Throws<InvalidDataException>(() =>
+            Vcdiff.Decode([], patch, armor: Blake3Armor.Require)).Message);
+        Assert.Contains(expected, Assert.Throws<InvalidDataException>(() =>
+            Vcdiff.Decode([], patch, Array.Empty<byte>(), armor: Blake3Armor.Require)).Message);
+        using var output = new MemoryStream();
+        Assert.Contains(expected, Assert.Throws<InvalidDataException>(() =>
+            Vcdiff.Decode(Stream.Null, new ShortReadPatch(patch), output, armor: Blake3Armor.Require)).Message);
+        Assert.Equal(0, output.Length);
+    }
+
+    [Fact]
+    public void RequiredArmorChecksForSourceDigestWhenAWindowDeclaresASource()
+    {
+        byte[] window = WindowVectors.Window(1, [], [19, 1], [0], indicator: 1, segmentLength: 1);
+        byte[] patch = [.. WithHeader($"target#{EmptyHash}/"), .. window];
+        using var output = new MemoryStream();
+        Assert.Contains("BLAKE3 source digest", Assert.Throws<InvalidDataException>(() =>
+            Vcdiff.Decode(new MemoryStream([42]), new ShortReadPatch(patch), output, armor: Blake3Armor.Require)).Message);
+        Assert.Equal(0, output.Length);
+    }
+
+    private static byte[] WithHeader(string metadata)
+    {
+        byte[] header = System.Text.Encoding.ASCII.GetBytes(metadata);
+        return [0xD6, 0xC3, 0xC4, 0, 4, .. WindowVectors.Integer(header.Length), .. header];
     }
 
     [Fact]

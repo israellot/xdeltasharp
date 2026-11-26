@@ -4,7 +4,8 @@ namespace XDeltaSharp;
 
 /// <summary>Selects optional application-header verification. An option can be shared across decode calls.</summary>
 /// <remarks>The default value skips armor verification. Use <c>Blake3Armor.Verify</c> from <c>xdelta.Blake3</c>
-/// to check whole-file digests when present. Adler-32 window checksums are verified independently.</remarks>
+/// to check whole-file digests when present, or <c>Blake3Armor.Require</c> to require armor.
+/// Adler-32 window checksums are verified independently.</remarks>
 public readonly struct VcdiffArmor
 {
     private readonly Func<IArmorVerifier>? _createVerifier;
@@ -16,6 +17,8 @@ public readonly struct VcdiffArmor
 internal interface IArmorVerifier
 {
     void ReadHeader(ReadOnlySpan<byte> bytes);
+    // The 1.0.0 BLAKE3 add-on implements optional verification only.
+    void ValidateHeader(bool usesSource) { }
     void VerifySource(ReadOnlySpan<byte> bytes);
     void VerifySource(Stream source);
     void VerifyTarget(ReadOnlySpan<byte> bytes);

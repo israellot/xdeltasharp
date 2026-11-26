@@ -10,6 +10,11 @@ public class LzmaDecoderTests
     private static byte[] Fixture(string name) =>
         File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
 
+    // XZ block with a 256 KiB LZMA2 dictionary and one uncompressed chunk.
+    private static byte[] StoredSection(byte[] bytes) =>
+        [.. Integer(bytes.Length), .. Convert.FromHexString("FD377A585A000000FF12D941020021010C0000008F98419C"),
+            1, 0, (byte)(bytes.Length - 1), .. bytes];
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -62,6 +67,67 @@ public class LzmaDecoderTests
     }
 
     [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(4)]
+    public void AppliesInclusiveSecondaryLimitsToEachSection(byte compressedSection)
+    {
+        byte[] source = [(byte)'q'];
+        byte[] data = "abc"u8.ToArray();
+        byte[] instructions = [4, 19, 1]; // ADD 3, COPY 1
+        byte[] addresses = [0x80, 0x80, 0]; // SELF address 0
+        byte[] window = Window(4, compressedSection == 1 ? StoredSection(data) : data,
+            compressedSection == 2 ? StoredSection(instructions) : instructions,
+            compressedSection == 4 ? StoredSection(addresses) : addresses, indicator: 1, segmentLength: 1,
+            compressedSections: compressedSection);
+        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 1, 2, .. window];
+        const int dictionarySize = 256 * 1024;
+        byte[] expected = "abcq"u8.ToArray();
+        Assert.Equal(expected, LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, 3, dictionarySize));
+        var destination = new byte[4];
+        Assert.Equal(4, LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, destination, 3, dictionarySize));
+        Assert.Equal(expected, destination);
+        using var output = new MemoryStream();
+        Assert.Equal(4, LzmaVcdiff.DecodeWithSecondaryLimits(new MemoryStream(source), new MemoryStream(patch),
+            output, patch.Length, 3, dictionarySize));
+        Assert.Equal(expected, output.ToArray());
+
+        Assert.Throws<InvalidDataException>(() => LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, 2, dictionarySize));
+        Assert.Throws<InvalidDataException>(() => LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, destination, 3, dictionarySize - 1));
+        using var rejected = new MemoryStream();
+        Assert.Throws<InvalidDataException>(() => LzmaVcdiff.DecodeWithSecondaryLimits(new MemoryStream(source),
+            new MemoryStream(patch), rejected, patch.Length, 0, dictionarySize));
+        Assert.Equal(0, rejected.Length);
+    }
+
+    [Fact]
+    public void EmptyRunCanConsumeADataByteBeyondTheTargetLength()
+    {
+        byte[] window = Window(1, StoredSection("xy"u8.ToArray()), [0, 0, 2], [], compressedSections: 1);
+        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 1, 2, .. window];
+        Assert.Equal("y"u8.ToArray(), LzmaVcdiff.Decode([], patch, maxOutputBytes: 1, maxWindowBytes: 1));
+    }
+
+    [Fact]
+    public void ZeroSecondaryLimitsAcceptRawSections()
+    {
+        byte[] window = Window(3, "abc"u8.ToArray(), [4], []);
+        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 1, 2, .. window];
+        Assert.Equal("abc"u8.ToArray(), LzmaVcdiff.DecodeWithSecondaryLimits([], patch, 0, 0));
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, -1)]
+    [InlineData(Vcdiff.MaxTargetWindowBytes + 1, 0)]
+    [InlineData(0, Vcdiff.MaxTargetWindowBytes + 1)]
+    public void ValidatesSecondaryLimitsEvenForAnEmptyPatch(int maxExpandedSectionBytes, int maxDictionaryBytes)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            LzmaVcdiff.DecodeWithSecondaryLimits([], Patch(), maxExpandedSectionBytes, maxDictionaryBytes));
+    }
+
+    [Theory]
     [Trait("Category", "Allocation")]
     [InlineData(false)]
     [InlineData(true)]
@@ -73,9 +139,13 @@ public class LzmaDecoderTests
 
         var target = new byte[3];
         LzmaVcdiff.Decode([], patch, target);
+        LzmaVcdiff.DecodeWithSecondaryLimits([], patch, target, 128, 4096);
         long start = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++)
+        {
             LzmaVcdiff.Decode([], patch, target);
+            LzmaVcdiff.DecodeWithSecondaryLimits([], patch, target, 128, 4096);
+        }
         long allocated = GC.GetAllocatedBytesForCurrentThread() - start;
 
         Assert.Equal(0, allocated);

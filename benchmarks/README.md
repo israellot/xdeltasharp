@@ -71,6 +71,8 @@ The recorded comparison used the two repository Moby-Dick editions on an Apple M
 
 Use `--profile-default <source> <target>` to measure the level-3 default and print its patch hash. Use `--afterburner <source> <target>` to compare ordinary and optimized output at each level.
 
+Use `--short-search` to time an unrelated 256-byte target and an exact match at the end of a 64 MiB source. When a short target would need a disproportionately large source index, the encoder spaces up to eight full source scans across the target. At every probe it still checks the predicted source position. A match at a sampled probe can extend backwards. Short moved fragments between probes can become literals.
+
 Historical results for the retired Fast and Exhaustive matchers remain in `Results/`, including the [original Default profile](Results/MobyDick-Default-profile.md). The [afterburner comparison](Results/Window-afterburner-net8-arm64.md) records all three implementations at the time of that experiment. Its Default rows refer to level 3.
 
 ## Decoder benchmarks
@@ -82,3 +84,14 @@ dotnet run -c Release --project benchmarks/XDeltaSharp.Benchmarks -- --decode
 ```
 
 The harness reuses the span buffer and memory streams, and checks the length and SHA-256 of every output path outside the timed batches. Each row reports the median time across seven warmed batches and average managed bytes allocated on the calling thread. The recorded run used an Apple M3 Max, .NET 8.0.34 Arm64 and SDK 8.0.428 in Release. [Decoder measurements](Results/Decoder-net8-arm64.csv)
+
+The decoder benchmark also reorders a 1 MiB source in 32-byte records. One case shuffles within 4 KiB groups, and the other shuffles across the whole file. The `FileStream source` rows read a temporary file with a warm operating-system cache. Patch input and output stay in memory. Repeated small COPYs within a 4 KiB region share a decoder read, while widely scattered COPYs generally require individual reads.
+
+The following medians compare `ff18cc2` with the bounded short-target search and file dictionary cache. Both builds used .NET 8.0.34 Arm64, SDK 8.0.428, Release on an Apple M3 Max, with `DOTNET_TieredCompilation=0`. Encoding used level 3 and the default memory policy.
+
+| Workload | Patch bytes | Before | After |
+| --- | ---: | ---: | ---: |
+| Encode unrelated 256-byte target against 64 MiB, array API | 274 | 504 ms | 15.7 ms |
+| Encode 256-byte match at end of 64 MiB, array API | 23 | 2.04 ms | 1.94 ms |
+| Decode clustered 32-byte records from file | 150,506 | 1.95 ms | 0.94 ms |
+| Decode scattered 32-byte records from file | 178,303 | 14.77 ms | 14.61 ms |

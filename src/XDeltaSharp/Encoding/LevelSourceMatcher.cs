@@ -9,9 +9,11 @@ internal readonly ref struct LevelSourceMatcher
     private const int ShortTargetLimit = 256;
     private const int LargeDictionaryThreshold = 2047;
     private const int MaxSourceToShortTargetRatio = 64;
+    private const int MaxShortTargetScans = 8;
     private readonly ReadOnlySpan<byte> _source;
     private readonly MatchIndex _index;
     private readonly int _step;
+    private readonly int _directSearchStride;
     internal int Length => _source.Length;
 
     private static int Positions(int length, int step) => length < MatcherProfile.SourceSeed
@@ -32,6 +34,10 @@ internal readonly ref struct LevelSourceMatcher
         // A short target can be cheaper to search directly than to index a much larger dictionary.
         bool disproportionateIndex = targetLength <= ShortTargetLimit &&
             source.Length > Math.Max(LargeDictionaryThreshold, targetLength * MaxSourceToShortTargetRatio);
+        // Space full-dictionary scans across a short target. A hit can extend back to the
+        // start of the match, and predicted positions are still checked at every probe.
+        _directSearchStride = disproportionateIndex
+            ? 1 + Math.Max(0, targetLength - MatcherProfile.TargetSeed) / MaxShortTargetScans : 1;
         if (targetLength <= DirectSearchTargetLimit || positions == 0 || disproportionateIndex) return;
         _index = new MatchIndex(positions, MatchIndex.Buckets(positions, memory), scratch, links: 0);
         // Populate backwards so the earliest occurrence wins a bucket collision.
@@ -57,6 +63,7 @@ internal readonly ref struct LevelSourceMatcher
         int position;
         if (_index.BucketCount == 0)
         {
+            if (probe % _directSearchStride != 0) return default;
             position = _source.IndexOf(tail[..4]);
             if (position < 0) return default;
         }

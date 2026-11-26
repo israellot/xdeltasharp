@@ -6,7 +6,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/publish.yml
-      - .github/global.json
+      - global.json
       - src/Directory.Build.props
       - eng/test-packages.py
   workflow_dispatch:
@@ -31,10 +31,10 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/release-dotnet
         with:
-          global-json-file: .github/global.json
+          global-json-file: global.json
       - name: Check the release SDK and package version
         run: |
-          test "$(dotnet --version)" = "$(jq -r .sdk.version .github/global.json)"
+          test "$(dotnet --version)" = "$(jq -r .sdk.version global.json)"
           version=$(dotnet msbuild src/XDeltaSharp/XDeltaSharp.csproj -nologo -getProperty:PackageVersion -p:Configuration=Release)
           if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF_NAME" != "v$version" ]]; then
             echo "::error::Tag $GITHUB_REF_NAME must match the package version v$version"

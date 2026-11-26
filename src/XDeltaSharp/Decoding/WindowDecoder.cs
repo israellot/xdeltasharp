@@ -9,18 +9,31 @@ internal interface ISecondaryDecoder : IDisposable
     ReadOnlySpan<byte> Decode(SectionKind kind, ReadOnlySpan<byte> encoded);
 }
 
+internal readonly struct SecondaryDecoderFactory(Func<int, int, ISecondaryDecoder>? createWithLimits,
+    int maxExpandedSectionBytes, int maxDictionaryBytes)
+{
+    private readonly Func<ISecondaryDecoder>? _create;
+
+    private SecondaryDecoderFactory(Func<ISecondaryDecoder> create) : this(null, 0, 0) => _create = create;
+
+    internal static SecondaryDecoderFactory? From(Func<ISecondaryDecoder>? create) =>
+        create is null ? null : new SecondaryDecoderFactory(create);
+
+    internal ISecondaryDecoder Create() => _create is null ? createWithLimits!(maxExpandedSectionBytes, maxDictionaryBytes) : _create();
+}
+
 internal ref struct WindowDecoder
 {
     private SectionReader _data;
     private SectionReader _instructions;
     private SectionReader _addresses;
     private readonly Span<byte> _target;
-    private readonly WindowDictionary _dictionary;
+    private WindowDictionary _dictionary;
     private readonly uint? _checksum;
     private int _written;
 
     internal WindowDecoder(in Window window, in WindowDictionary dictionary, Span<byte> target,
-        Func<ISecondaryDecoder>? createSecondary, scoped ref ISecondaryDecoder? secondary)
+        SecondaryDecoderFactory? secondaryFactory, scoped ref ISecondaryDecoder? secondary)
     {
         _data = new SectionReader(window.Data);
         _instructions = new SectionReader(window.Instructions);
@@ -29,15 +42,23 @@ internal ref struct WindowDecoder
         _dictionary = dictionary;
         _checksum = window.Checksum;
         if (window.CompressedSections != 0)
-            ExpandSections(window, secondary ??= createSecondary!());
+            ExpandSections(window, secondary ??= secondaryFactory!.Value.Create());
     }
 
     private void ExpandSections(in Window window, ISecondaryDecoder decoder)
     {
-        if ((window.CompressedSections & (byte)SectionKind.Data) != 0)
-            _data = new SectionReader(decoder.Decode(SectionKind.Data, window.Data));
         if ((window.CompressedSections & (byte)SectionKind.Instructions) != 0)
             _instructions = new SectionReader(decoder.Decode(SectionKind.Instructions, window.Instructions));
+        if ((window.CompressedSections & (byte)SectionKind.Data) != 0)
+        {
+            // ADD and nonempty RUN consume at most one data byte per target byte.
+            // An empty RUN consumes one extra data byte and at least two instruction bytes.
+            int maxDataLength = _target.Length + _instructions.Remaining.Length / 2;
+            // xdelta3 prefixes a compressed section with its expanded size.
+            if (new SectionReader(window.Data).ReadLength() > maxDataLength)
+                throw new InvalidDataException("Expanded xdelta3 data section exceeds the bytes its instructions can consume.");
+            _data = new SectionReader(decoder.Decode(SectionKind.Data, window.Data));
+        }
         if ((window.CompressedSections & (byte)SectionKind.Addresses) != 0)
             _addresses = new SectionReader(decoder.Decode(SectionKind.Addresses, window.Addresses));
     }

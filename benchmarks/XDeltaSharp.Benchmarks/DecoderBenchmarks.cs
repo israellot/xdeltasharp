@@ -30,10 +30,43 @@ internal static class DecoderBenchmarks
         MeasureCase("xdelta3 LZMA", source, compressed, multiWindowLength, digest, lzma: true);
         MeasureCase("xdelta3 LZMA + BLAKE3", source, compressed, multiWindowLength, digest, lzma: true,
             armor: Blake3Armor.Verify);
+        MeasureFileCopies();
+    }
+
+    private static void MeasureFileCopies()
+    {
+        const int recordSize = 32;
+        byte[] source = new byte[1 << 20];
+        var random = new Random(173);
+        random.NextBytes(source);
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, source);
+            using var file = File.OpenRead(path);
+            foreach (int groupBytes in new[] { 4096, source.Length })
+            {
+                // Each record appears once. Vary how far the next COPY can move in the file.
+                int[] order = Enumerable.Range(0, source.Length / recordSize).ToArray();
+                int group = groupBytes / recordSize;
+                for (int start = 0; start < order.Length; start += group)
+                    random.Shuffle(order.AsSpan(start, group));
+                byte[] target = new byte[source.Length];
+                for (int i = 0; i < order.Length; i++)
+                    source.AsSpan(order[i] * recordSize, recordSize).CopyTo(target.AsSpan(i * recordSize));
+                string name = groupBytes == source.Length ? "scattered records" : "clustered records";
+                MeasureCase(name, source, Vcdiff.Encode(source, target), target.Length, SHA256.HashData(target),
+                    fileDictionary: file);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private static void MeasureCase(string name, byte[] source, byte[] patch, int targetLength, byte[] digest,
-        bool lzma = false, VcdiffArmor armor = default)
+        bool lzma = false, VcdiffArmor armor = default, FileStream? fileDictionary = null)
     {
         byte[] array = [];
         Measure("array", () => array = lzma
@@ -51,19 +84,25 @@ internal static class DecoderBenchmarks
         using var dictionary = new MemoryStream(source, writable: false);
         using var input = new MemoryStream(patch, writable: false);
         using var output = new MemoryStream(targetLength);
-        long streamed = 0;
-        Measure("stream", () =>
+        MeasureStream("stream", dictionary);
+        if (fileDictionary != null) MeasureStream("FileStream source", fileDictionary);
+
+        void MeasureStream(string api, Stream streamSource)
         {
-            dictionary.Position = 0;
-            input.Position = 0;
-            output.SetLength(0);
-            streamed = lzma
-                ? LzmaVcdiff.Decode(dictionary, input, output, armor, maxOutputBytes: targetLength)
-                : Vcdiff.Decode(dictionary, input, output, maxOutputBytes: targetLength);
-        });
-        if (streamed != output.Length)
-            throw new InvalidDataException($"Incorrect stream length for {name}.");
-        Validate(output.GetBuffer().AsSpan(0, (int)streamed));
+            long streamed = 0;
+            Measure(api, () =>
+            {
+                streamSource.Position = 0;
+                input.Position = 0;
+                output.SetLength(0);
+                streamed = lzma
+                    ? LzmaVcdiff.Decode(streamSource, input, output, armor, maxOutputBytes: targetLength)
+                    : Vcdiff.Decode(streamSource, input, output, maxOutputBytes: targetLength);
+            });
+            if (streamed != output.Length)
+                throw new InvalidDataException($"Incorrect stream length for {name}.");
+            Validate(output.GetBuffer().AsSpan(0, (int)streamed));
+        }
 
         void Measure(string api, Action decode)
         {

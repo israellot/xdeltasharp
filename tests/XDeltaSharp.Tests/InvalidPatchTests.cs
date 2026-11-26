@@ -62,6 +62,7 @@ public class InvalidPatchTests
         { "missing second instruction operand", Patch(Window(5, [42], [163], [], 1, 4)) },
         { "COPY at current write position", Patch(Window(4, [], [20], [0])) },
         { "COPY beyond current write position", Patch(Window(4, [], [20], [5], 1, 4)) },
+        // RFC 3284 section 3 requires the entire COPY substring to be in S or in T.
         { "COPY spans dictionary boundary", Patch(Window(5, [42], [2, 20], [1], 1, 4)) },
         { "HERE underflow", Patch(Window(4, [], [36], [5], 1, 4)) },
         { "NEAR addition exceeds unsigned range", Patch(Window(2, [], [19, 1, 51, 1],

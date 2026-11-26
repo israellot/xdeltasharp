@@ -27,6 +27,10 @@ Console.WriteLine(restored.AsSpan().SequenceEqual(updated)); // True
 
 Encoding defaults to level 3. Pass `compressionLevel: 0` through `9` to adjust the search effort, or use `EncodeOptimized` to spend extra encoding time looking for a smaller patch. The decoder works with every level.
 
+The encoder processes the target in 8 MiB windows. For a source larger than 64 MiB, each window searches a single 64 MiB source segment selected by its target offset. The last segment ends at the end of the source. Bytes moved outside the selected segment can increase patch size.
+
+Indexing a full 64 MiB source segment uses 32 MiB at levels 0–1, 64 MiB at levels 2–5, and 256 MiB at levels 6–9. `MemoryMode.LessMemory` halves the source index at each level. These sizes exclude inputs, output, and target-matching buffers. The shared array pool can retain the index after encoding.
+
 ## Using patches with xdelta3
 
 The core encoder writes RFC 3284 version 0 patches using the default code table and uncompressed sections. When creating a patch with the xdelta3 CLI, use `-S none` to disable secondary compression.
@@ -49,7 +53,7 @@ Each add-on includes the core package as a dependency. Both decoders verify Adle
 
 ## Apply a patch to a file
 
-Install both add-ons to read an LZMA-compressed patch and verify its embedded digests. This example caps each window’s encoded payload at 8 MiB and the total reconstructed file at 4 GiB.
+Install both add-ons to read an LZMA-compressed patch and require its embedded digests. The example uses the secondary limits and mandatory armor options added after 1.0.0. It caps each window’s encoded payload and each expanded section at 8 MiB, each LZMA dictionary at 16 MiB, and the reconstructed file at 4 GiB.
 
 ```csharp
 using XDeltaSharp.Blake3;
@@ -59,13 +63,15 @@ using var source = File.OpenRead("original.bin");
 using var patch = File.OpenRead("update.vcdiff");
 using var output = File.Create("restored.bin");
 
-long written = LzmaVcdiff.DecodeWithLimits(source, patch, output,
+long written = LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, output,
     maxEncodedWindowBytes: 8 * 1024 * 1024,
+    maxExpandedSectionBytes: 8 * 1024 * 1024,
+    maxDictionaryBytes: 16 * 1024 * 1024,
     maxOutputBytes: 4L * 1024 * 1024 * 1024,
-    armor: Blake3Armor.Verify);
+    armor: Blake3Armor.Require);
 ```
 
-A source digest mismatch fails before writing. A target digest mismatch is detected after reconstruction, so use the output only after the call succeeds. Patches without recognized digests still decode.
+A source digest mismatch fails before writing. A target digest mismatch is detected after reconstruction, so use the output only after the call succeeds. `Blake3Armor.Verify` accepts patches without armor. Use `Blake3Armor.Require` to require a target digest and a source digest whenever the patch declares a source. The digests travel with the patch and detect corruption. Publisher authentication requires a separately trusted signature or digest.
 
 ## Buffers, streams, and limits
 

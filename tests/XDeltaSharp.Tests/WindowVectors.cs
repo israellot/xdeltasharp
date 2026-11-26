@@ -17,7 +17,8 @@ internal static class WindowVectors
     }
 
     internal static byte[] Window(int targetLength, byte[] data, byte[] instructions, byte[] addresses,
-        byte indicator = 0, long segmentLength = 0, long segmentOffset = 0, uint? checksum = null)
+        byte indicator = 0, long segmentLength = 0, long segmentOffset = 0, uint? checksum = null,
+        byte compressedSections = 0)
     {
         byte[] checksumBytes = [];
         byte[] segment = indicator == 0 ? [] : [.. Integer(segmentLength), .. Integer(segmentOffset)];
@@ -26,7 +27,7 @@ internal static class WindowVectors
             indicator |= 4;
             checksumBytes = [(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value];
         }
-        byte[] delta = [.. Integer(targetLength), 0, .. Integer(data.Length), .. Integer(instructions.Length),
+        byte[] delta = [.. Integer(targetLength), compressedSections, .. Integer(data.Length), .. Integer(instructions.Length),
             .. Integer(addresses.Length), .. checksumBytes, .. data, .. instructions, .. addresses];
         return [indicator, .. segment, .. Integer(delta.Length), .. delta];
     }

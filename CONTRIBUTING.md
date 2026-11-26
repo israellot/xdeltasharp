@@ -2,7 +2,7 @@
 
 ## Set up a branch
 
-Start from the latest `master` and create a branch for your change. If you’re contributing from a fork, sync it with `israellot/xdeltasharp` first. From the repository root, use the .NET 8 SDK (8.0.400 or later in the 8.0 series) to run the tests.
+Start from the latest `master` and create a branch for your change. If you’re contributing from a fork, sync it with `israellot/xdeltasharp` first. Install the exact .NET SDK version in [global.json](global.json). Local builds, CI, and package releases use that SDK.
 
 ```sh
 git switch -c fix-window-decoding
@@ -18,6 +18,14 @@ The core codec lives in `src/XDeltaSharp`. The optional LZMA and BLAKE3 implemen
 - **Performance changes.** Compare the same workload before and after your change. Include the input, compression level, runtime, and architecture with your results. The [benchmark guide](benchmarks/README.md) lists the commands.
 
 Run `dotnet test XDeltaSharp.sln -c Release` and `dotnet format whitespace XDeltaSharp.sln --verify-no-changes` before submitting.
+
+To run the encoder interoperability tests locally, install the xdelta3 CLI and set `XDELTA3` to its executable name or absolute path. Linux CI runs the same tests on every pull request.
+
+```sh
+XDELTA3=xdelta3 dotnet test XDeltaSharp.sln -c Release --filter 'Category=Interop'
+```
+
+The regular suite also mutates four decoder seed patches. Each case flips a single bit, deletes a byte, or duplicates it. Failures identify the fixture, byte, and edit. Replay the same sweep with `dotnet test XDeltaSharp.sln -c Release --filter FullyQualifiedName~DecoderMutationTests`.
 
 ## Open a pull request
 
