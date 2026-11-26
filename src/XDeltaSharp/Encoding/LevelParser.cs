@@ -12,12 +12,14 @@ internal static class LevelParser
         try
         {
             int probe = 0;
+            // A source COPY updates the expected source address for each subsequent target probe.
             long sourceBias = alignedOffset;
             while (probe <= target.Length - MatcherProfile.TargetSeed)
             {
-                int minimum = Math.Max(4, operations.LastEnd - probe + 1);
-                var match = Find(source, target, ref history, profile, probe, operations.Written, minimum,
-                    sourceBias, minimum > 4);
+                // A lazy probe must extend past the pending match to replace it.
+                int minimum = Math.Max(MatcherProfile.TargetSeed, operations.LastEnd - probe + 1);
+                bool lazy = minimum > MatcherProfile.TargetSeed;
+                var match = Find(source, target, ref history, profile, probe, operations.Written, minimum, sourceBias, lazy);
                 if (match.Length == 0)
                 {
                     probe++;
@@ -27,7 +29,10 @@ internal static class LevelParser
                 operations.Add(match, target, ref writer);
                 if (match.ReadOffset >= 0 && match.ReadOffset < source.Length)
                     sourceBias = match.ReadOffset - match.WriteOffset;
-                probe = match.Length < profile.MaxLazy && match.End <= target.Length - 2 ? probe + 1 : match.End;
+
+                // A short match is eligible for lookahead only when at least two more bytes follow.
+                probe = match.Length < profile.LazyMatchLimit && match.End <= target.Length - 2
+                    ? probe + 1 : match.End;
             }
             operations.Flush(target, ref writer, final: true);
         }
@@ -43,16 +48,21 @@ internal static class LevelParser
         long sourceBias, bool lazy)
     {
         var tail = target[probe..];
-        if (tail.Length >= 8 && tail[0] == tail[1] && tail[0] == tail[2] && tail[0] == tail[3])
+        if (tail.Length >= MatcherProfile.MinRunLength &&
+            tail[0] == tail[1] && tail[0] == tail[2] && tail[0] == tail[3])
         {
-            int end = tail[4..].IndexOfAnyExcept(tail[0]);
-            int length = end < 0 ? tail.Length : end + 4;
-            if (length >= Math.Max(8, minimum)) return new CopyMatch(-1, probe, length);
+            int firstDifferent = tail[4..].IndexOfAnyExcept(tail[0]);
+            int length = firstDifferent < 0 ? tail.Length : firstDifferent + 4;
+            if (length >= Math.Max(MatcherProfile.MinRunLength, minimum))
+                return new CopyMatch(CopyMatch.RunOffset, probe, length);
         }
 
         var match = source.Find(target, probe, written, minimum, sourceBias + probe);
-        if (match.Length != 0 || profile.TargetChain == 0) return match;
+        if (match.Length != 0 || profile.TargetCandidates == 0)
+            return match;
+
         match = history.FindAndInsert(probe, minimum, lazy);
+        // VCDIFF target addresses follow the source segment in the COPY address space.
         return match with { ReadOffset = source.Length + match.ReadOffset };
     }
 }

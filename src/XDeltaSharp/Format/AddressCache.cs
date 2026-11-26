@@ -5,8 +5,15 @@ namespace XDeltaSharp.Format;
 /// <summary>Default COPY address caches. Addresses are relative to the dictionary plus the current window.</summary>
 internal sealed class AddressCache
 {
-    private readonly long[] _near = new long[4];
-    private readonly long[] _same = new long[3 * 256];
+    internal const int NearSize = 4;
+    internal const int FirstNearMode = 2;
+    internal const int FirstSameMode = FirstNearMode + NearSize;
+    internal const int ModeCount = FirstSameMode + 3;
+    internal const int SamePageSize = 256;
+    internal const int SameSize = (ModeCount - FirstSameMode) * SamePageSize;
+
+    private readonly long[] _near = new long[NearSize];
+    private readonly long[] _same = new long[SameSize];
     private int _nextNear;
 
     internal void Reset()
@@ -26,8 +33,8 @@ internal sealed class AddressCache
         {
             0 => addresses.ReadInteger(),
             1 => here - addresses.ReadInteger(),
-            <= 5 => AddNear(near[mode - 2], addresses.ReadInteger()),
-            _ => same[(mode - 6) * 256 + addresses.ReadByte()]
+            < FirstSameMode => AddNear(near[mode - FirstNearMode], addresses.ReadInteger()),
+            _ => same[(mode - FirstSameMode) * SamePageSize + addresses.ReadByte()]
         };
 
         if (address < 0 || address >= here)

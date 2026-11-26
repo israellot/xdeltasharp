@@ -40,7 +40,7 @@ Input files and hashes match the [previous block-size experiment](Fast-source-bl
 
 ## Reproduce
 
-Apply the [experimental stride patch](../Experiments/FastSourceBlockSize/stride4.patch) to a separate checkout of `d0570cc`. Run the focused benchmark on both the original and patched builds.
+Apply the [experimental stride patch](https://github.com/israellot/xdeltasharp/blob/f405b3ea3c0ddcd2e2dbb1e57cd634dd07c88693/benchmarks/Experiments/FastSourceBlockSize/stride4.patch) to a separate checkout of `d0570cc`. Run the focused benchmark on both the original and patched builds.
 
 ```sh
 git apply --unidiff-zero /path/to/stride4.patch

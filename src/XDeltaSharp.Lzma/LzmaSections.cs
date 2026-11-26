@@ -6,11 +6,13 @@ using XDeltaSharp.Decoding;
 
 namespace XDeltaSharp.Lzma;
 
-internal sealed class LzmaSections : IDisposable
+internal sealed class LzmaSections : ISecondaryDecoder
 {
     private SectionStream? _data, _instructions, _addresses;
 
-    internal ReadOnlySpan<byte> Decode(SectionKind kind, ReadOnlySpan<byte> encoded)
+    internal static ISecondaryDecoder Create() => new LzmaSections();
+
+    public ReadOnlySpan<byte> Decode(SectionKind kind, ReadOnlySpan<byte> encoded)
     {
         var prefix = new SectionReader(encoded);
         int length = prefix.ReadLength();

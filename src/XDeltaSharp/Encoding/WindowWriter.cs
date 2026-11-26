@@ -8,7 +8,7 @@ namespace XDeltaSharp.Encoding;
 internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> data, Span<byte> instructions,
     Span<byte> addresses, Span<int> sameCache)
 {
-    [InlineArray(4)]
+    [InlineArray(AddressCache.NearSize)]
     private struct NearCache { private int _first; }
 
     private SectionBuffer _data = new(data);
@@ -29,7 +29,7 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
             _firstLiteral = bytes;
         else
             _data.Append(bytes);
-        Instruction(AddOpcode(bytes.Length), bytes.Length, bytes.Length > 17);
+        Instruction(DefaultCodeTable.AddOpcode(bytes.Length), bytes.Length, bytes.Length > DefaultCodeTable.MaxFixedAddSize);
     }
 
     internal void Run(byte value, int length)
@@ -42,19 +42,14 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
     {
         int mode = SelectAddress(address, _written, out int value);
         CommitAddress(address, mode, value);
-        bool fixedSize = length is >= 4 and <= 18;
-        Instruction(CopyOpcode(mode, length), length, !fixedSize);
+        Instruction(DefaultCodeTable.CopyOpcode(mode, length), length, !DefaultCodeTable.HasFixedCopySize(length));
     }
-
-    private static byte AddOpcode(int length) => length <= 17 ? (byte)(1 + length) : (byte)1;
-    private static byte CopyOpcode(int mode, int length)
-        => (byte)(19 + 16 * mode + (length is >= 4 and <= 18 ? length - 3 : 0));
 
     private readonly int LiteralCost(int length)
     {
         if (length == 0) return 0;
-        if (length > 17) return length + 1 + WireInteger.Size(length);
-        return _canPair && DefaultCodeTable.TryPair(_lastOpcode, AddOpcode(length), out _) ? length : length + 1;
+        if (length > DefaultCodeTable.MaxFixedAddSize) return length + 1 + WireInteger.Size(length);
+        return _canPair && DefaultCodeTable.TryPair(_lastOpcode, DefaultCodeTable.AddOpcode(length), out _) ? length : length + 1;
     }
 
     internal readonly int RunSavings(int writeOffset, int length)
@@ -66,48 +61,21 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
     internal readonly int CopySavings(int writeOffset, int address, int length)
     {
         int mode = SelectAddress(address, writeOffset, out int value);
-        return CopySavingsForMode(writeOffset, length, mode, mode >= 6 ? 1 : WireInteger.Size(value));
-    }
-
-    // Even eliminating a five-byte ADD header still costs at least one address byte.
-    internal static int MinimumImprovingLength(int savings) => Math.Max(4, savings - 3);
-
-    // A one-byte SELF operand offers the lowest address cost and all possible opcode pairs.
-    // Its savings never decrease with length: an extra size byte costs at most one extra literal.
-    internal readonly int MinimumTargetCopyLength(int writeOffset, int savings, int available)
-    {
-        int length = MinimumImprovingLength(savings);
-        while (length <= available && CopySavingsForMode(writeOffset, length, 0, 1) <= savings)
-            length++;
-        return length;
-    }
-
-    private readonly int CopySavingsForMode(int writeOffset, int length, int mode, int addressBytes)
-    {
+        int addressBytes = mode >= AddressCache.FirstSameMode ? 1 : WireInteger.Size(value);
         int pending = writeOffset - _written;
         int cost = 1 + addressBytes;
-        if (length is < 4 or > 18)
+        if (!DefaultCodeTable.HasFixedCopySize(length))
             cost += WireInteger.Size(length);
         else
         {
             // A pending ADD already paired with the preceding COPY cannot pair a second time.
             bool canPair = pending == 0 ? _canPair : pending <= 4 && LiteralCost(pending) > pending;
-            if (canPair && DefaultCodeTable.TryPair(pending == 0 ? _lastOpcode : AddOpcode(pending),
-                CopyOpcode(mode, length), out _)) cost--;
+            if (canPair && DefaultCodeTable.TryPair(pending == 0 ? _lastOpcode : DefaultCodeTable.AddOpcode(pending),
+                DefaultCodeTable.CopyOpcode(mode, length), out _)) cost--;
         }
         if (_addresses.Length == 0 && sourceLength != 0)
             cost += WireInteger.Size(sourceOffset) + WireInteger.Size(sourceLength);
         return LiteralCost(pending + length) - LiteralCost(pending) - cost;
-    }
-
-    internal readonly int CopySavingsUpperBound(int windowLength, int earliestWriteOffset)
-    {
-        int remaining = windowLength - earliestWriteOffset;
-        // For long matches even the cheapest complete COPY needs opcode, size, and one address byte.
-        // Shortening across a size-varint boundary saves at most the number of literal bytes forfeited.
-        int minCost = remaining >= 32 ? 2 + WireInteger.Size(remaining) : 1;
-        if (_addresses.Length == 0 && sourceLength != 0) minCost += WireInteger.Size(sourceOffset) + WireInteger.Size(sourceLength);
-        return LiteralCost(windowLength - _written) - LiteralCost(earliestWriteOffset - _written) - minCost;
     }
 
     private void Instruction(byte opcode, int size, bool explicitSize)
@@ -135,13 +103,13 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
             value = distance;
             mode = 1;
         }
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < AddressCache.NearSize; i++)
         {
             distance = address - _near[i];
             if (distance >= 0 && distance < value)
             {
                 value = distance;
-                mode = 2 + i;
+                mode = AddressCache.FirstNearMode + i;
             }
         }
 
@@ -150,8 +118,8 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
             int slot = address % _same.Length;
             if (_same[slot] == address)
             {
-                mode = 6 + slot / 256;
-                value = slot % 256;
+                mode = AddressCache.FirstSameMode + slot / AddressCache.SamePageSize;
+                value = slot % AddressCache.SamePageSize;
             }
         }
         return mode;
@@ -164,72 +132,71 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
             if (_addresses.Length == 0) _same.Clear();
             _same[address % _same.Length] = address;
         }
-        if (mode >= 6) _addresses.Add((byte)value);
+        if (mode >= AddressCache.FirstSameMode) _addresses.Add((byte)value);
         else _addresses.Integer(value);
         _near[_nextNear] = address;
-        _nextNear = (_nextNear + 1) & 3;
+        _nextNear = (_nextNear + 1) & (AddressCache.NearSize - 1);
     }
 
     internal readonly ReadOnlySpan<byte> Instructions => _instructions.Written;
     internal readonly ReadOnlySpan<byte> Addresses => _addresses.Written;
     private readonly int DataLength => _firstLiteral.Length + _data.Length;
 
-    // Includes the dictionary descriptor, section headers, and single-ADD fallback.
-    internal readonly int FramedSize(int targetLength) => Layout(targetLength).Length;
+    // Without COPY addresses, an empty data buffer leaves only the borrowed first ADD, if any.
+    // A lone RUN stores one data byte and has no borrowed literal, regardless of its encoded length.
+    internal readonly bool IsEmptyOrSingleDataOperation => _addresses.Length == 0 &&
+        (_data.Length == 0 || (_data.Length == 1 && _firstLiteral.IsEmpty));
 
-    private readonly (int Length, int DeltaSize, bool Dictionary, bool LiteralOnly) Layout(int targetLength)
+    internal readonly record struct WindowLayout(int Length, int DeltaSize, int InstructionSize, bool UsesDictionary, bool LiteralOnly);
+
+    // Includes the dictionary descriptor, section headers, and single-ADD fallback.
+    internal readonly WindowLayout Measure(int targetLength)
     {
         bool dictionary = sourceLength != 0 && _addresses.Length != 0;
-        int literalOpcodeSize = targetLength <= 17 ? 1 : 1 + WireInteger.Size(targetLength);
-        int dataLength = DataLength;
-        int deltaSize = DeltaSize(targetLength, dataLength, _instructions.Length, _addresses.Length);
+        int deltaSize = DeltaSize(targetLength, DataLength, _instructions.Length, _addresses.Length);
         int length = 1 + WireInteger.Size(deltaSize) + deltaSize;
         if (dictionary) length += WireInteger.Size(sourceOffset) + WireInteger.Size(sourceLength);
 
+        int literalOpcodeSize = targetLength <= DefaultCodeTable.MaxFixedAddSize ? 1 : 1 + WireInteger.Size(targetLength);
         int rawDelta = DeltaSize(targetLength, targetLength, literalOpcodeSize, 0);
         int rawLength = 1 + WireInteger.Size(rawDelta) + rawDelta;
-        bool literalOnly = targetLength != 0 && rawLength <= length;
-        if (literalOnly)
-        {
-            dictionary = false;
-            length = rawLength;
-            deltaSize = rawDelta;
-        }
-        return (length, deltaSize, dictionary, literalOnly);
+        return targetLength != 0 && rawLength <= length
+            ? new WindowLayout(rawLength, rawDelta, literalOpcodeSize, UsesDictionary: false, LiteralOnly: true)
+            : new WindowLayout(length, deltaSize, _instructions.Length, dictionary, LiteralOnly: false);
     }
 
     internal byte[]? Finish(ReadOnlySpan<byte> target, bool firstWindow, IBufferWriter<byte>? sink)
+        => Finish(target, firstWindow, sink, Measure(target.Length));
+
+    internal byte[]? Finish(ReadOnlySpan<byte> target, bool firstWindow, IBufferWriter<byte>? sink, WindowLayout layout)
     {
-        var (length, deltaSize, dictionary, literalOnly) = Layout(target.Length);
-        int literalOpcodeSize = target.Length <= 17 ? 1 : 1 + WireInteger.Size(target.Length);
-        int dataLength = DataLength;
-        if (firstWindow) length += 5;
-        byte[]? result = sink == null ? new byte[length] : null;
-        Span<byte> output = result != null ? result : sink!.GetSpan(length);
+        int length = layout.Length + (firstWindow ? FileHeader.Default.Length : 0);
+        byte[]? result = sink is null ? new byte[length] : null;
+        Span<byte> output = sink is null ? result : sink.GetSpan(length);
         if (firstWindow)
         {
-            FileHeader.CopyTo(output);
-            output = output[5..];
+            FileHeader.Default.CopyTo(output);
+            output = output[FileHeader.Default.Length..];
         }
-        output[0] = dictionary ? (byte)1 : (byte)0;
+        output[0] = (byte)(layout.UsesDictionary ? WindowFlags.Source : WindowFlags.None);
         output = output[1..];
-        if (dictionary)
+        if (layout.UsesDictionary)
         {
             PutInteger(ref output, sourceLength);
             PutInteger(ref output, sourceOffset);
         }
-        PutInteger(ref output, deltaSize);
+        PutInteger(ref output, layout.DeltaSize);
         PutInteger(ref output, target.Length);
         output[0] = 0;
         output = output[1..];
-        PutInteger(ref output, literalOnly ? target.Length : dataLength);
-        PutInteger(ref output, literalOnly ? literalOpcodeSize : _instructions.Length);
-        PutInteger(ref output, literalOnly ? 0 : _addresses.Length);
-        if (literalOnly)
+        PutInteger(ref output, layout.LiteralOnly ? target.Length : DataLength);
+        PutInteger(ref output, layout.InstructionSize);
+        PutInteger(ref output, layout.LiteralOnly ? 0 : _addresses.Length);
+        if (layout.LiteralOnly)
         {
             Put(ref output, target);
-            output[0] = target.Length <= 17 ? (byte)(1 + target.Length) : (byte)1;
-            if (target.Length > 17) WireInteger.Write(output[1..], target.Length);
+            output[0] = DefaultCodeTable.AddOpcode(target.Length);
+            if (target.Length > DefaultCodeTable.MaxFixedAddSize) WireInteger.Write(output[1..], target.Length);
         }
         else
         {
@@ -241,8 +208,6 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
         sink?.Advance(length);
         return result;
     }
-
-    private static ReadOnlySpan<byte> FileHeader => [0xD6, 0xC3, 0xC4, 0, 0];
 
     private static int DeltaSize(int target, int data, int instructions, int addresses)
         => WireInteger.Size(target) + 1 + WireInteger.Size(data) + WireInteger.Size(instructions)

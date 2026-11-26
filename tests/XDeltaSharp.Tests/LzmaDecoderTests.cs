@@ -62,6 +62,27 @@ public class LzmaDecoderTests
     }
 
     [Theory]
+    [Trait("Category", "Allocation")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RawSectionsDecodeIntoASpanWithoutAllocating(bool hasLzmaHeader)
+    {
+        byte[] patch = Patch(Window(3, "abc"u8.ToArray(), [4], []));
+        if (hasLzmaHeader)
+            patch = [.. patch.AsSpan(0, 4), 1, 2, .. patch.AsSpan(5)];
+
+        var target = new byte[3];
+        LzmaVcdiff.Decode([], patch, target);
+        long start = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 100; i++)
+            LzmaVcdiff.Decode([], patch, target);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+
+        Assert.Equal(0, allocated);
+        Assert.Equal("abc"u8.ToArray(), target);
+    }
+
+    [Theory]
     [InlineData("00", "")]                 // Empty expanded section
     [InlineData("A0808001", "")]           // Expanded section above 64 MiB
     [InlineData("03", "0100026162")]       // Truncated chunk

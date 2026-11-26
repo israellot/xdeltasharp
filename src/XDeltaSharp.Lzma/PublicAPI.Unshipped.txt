@@ -1,0 +1,2 @@
+#nullable enable
+static XDeltaSharp.Lzma.LzmaVcdiff.DecodeWithLimits(System.IO.Stream! source, System.IO.Stream! patch, System.IO.Stream! destination, int maxEncodedWindowBytes, long maxOutputBytes = 9223372036854775807, int maxWindowBytes = 67108864, XDeltaSharp.VcdiffArmor armor = default(XDeltaSharp.VcdiffArmor)) -> long

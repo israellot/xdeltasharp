@@ -38,7 +38,7 @@ VCDiffSharp checked reconstruction in each process and compared the allocating a
 
 ## Reproduce
 
-Use an isolated checkout of `7855222` and apply the [experimental patch](../Experiments/FastSourceBlockSize/seed16-spacing.patch). The example below selects 16-byte seeds at 4-byte intervals. Set `FastStrideBytes=8` to test 16-byte seeds every 8 bytes. Read the Fast/Default-memory/writer result.
+Use an isolated checkout of `7855222` and apply the [experimental patch](https://github.com/israellot/xdeltasharp/blob/f405b3ea3c0ddcd2e2dbb1e57cd634dd07c88693/benchmarks/Experiments/FastSourceBlockSize/seed16-spacing.patch). The example below selects 16-byte seeds at 4-byte intervals. Set `FastStrideBytes=8` to test 16-byte seeds every 8 bytes. Read the Fast/Default-memory/writer result.
 
 ```sh
 git apply --unidiff-zero /path/to/seed16-spacing.patch

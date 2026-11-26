@@ -1,0 +1,19 @@
+Case,Source B,Target B,Patch B,API,ns/op,Allocated B/op
+single ADD,0,7,20,array,162.0,32.0
+single ADD,0,7,20,span,51.8,0.0
+single ADD,0,7,20,stream,83.5,64.0
+single ADD via LZMA,0,7,20,array,79.7,32.0
+single ADD via LZMA,0,7,20,span,54.2,0.0
+single ADD via LZMA,0,7,20,stream,87.4,64.0
+xdelta3 checksum,151,226,206,array,445.1,6520.0
+xdelta3 checksum,151,226,206,span,384.2,6264.0
+xdelta3 checksum,151,226,206,stream,451.0,6576.0
+raw checksum via LZMA,151,226,206,array,440.3,6520.0
+raw checksum via LZMA,151,226,206,span,386.2,6264.0
+raw checksum via LZMA,151,226,206,stream,460.8,6576.0
+xdelta3 LZMA,151,16779027,785,array,6122800.0,16888772.3
+xdelta3 LZMA,151,16779027,785,span,5444325.0,107672.0
+xdelta3 LZMA,151,16779027,785,stream,5920800.0,8497766.9
+xdelta3 LZMA + BLAKE3,151,16779027,785,array,36317500.0,16890188.6
+xdelta3 LZMA + BLAKE3,151,16779027,785,span,35799400.0,107992.0
+xdelta3 LZMA + BLAKE3,151,16779027,785,stream,36857200.0,8497704.0

@@ -1,3 +1,5 @@
+using XDeltaSharp.Format;
+
 namespace XDeltaSharp.Decoding;
 
 /// <summary>Reads the same file and window framing from contiguous memory or a sequential stream.</summary>
@@ -6,6 +8,7 @@ internal ref struct WindowReader
     private ReadOnlySpan<byte> _remaining;
     private readonly Stream? _stream;
     private readonly int _windowLimit;
+    private readonly int _encodedWindowLimit;
     private byte[] _sectionBuffer;
     private long _headerBytes;
     private bool _hasSecondary;
@@ -13,14 +16,17 @@ internal ref struct WindowReader
     internal WindowReader(ReadOnlySpan<byte> patch, int windowLimit, bool allowLzma = false, IArmorVerifier? armor = null)
     {
         _remaining = patch;
+        _encodedWindowLimit = Array.MaxLength;
         _sectionBuffer = [];
         _windowLimit = windowLimit;
         ReadFileHeader(allowLzma, armor);
     }
 
-    internal WindowReader(Stream patch, int windowLimit, bool allowLzma = false, IArmorVerifier? armor = null)
+    internal WindowReader(Stream patch, int windowLimit, int maxEncodedWindowBytes, bool allowLzma = false,
+        IArmorVerifier? armor = null)
     {
         _stream = patch;
+        _encodedWindowLimit = maxEncodedWindowBytes;
         _sectionBuffer = [];
         _windowLimit = windowLimit;
         ReadFileHeader(allowLzma, armor);
@@ -53,10 +59,9 @@ internal ref struct WindowReader
         do
         {
             digit = ReadByte();
-            if (value > long.MaxValue >> 7)
+            if (!WireInteger.TryAppendDigit(ref value, digit))
                 throw new InvalidDataException("VCDIFF header integer exceeds the supported range.");
-            value = (value << 7) | (uint)(digit & 127);
-        } while ((digit & 128) != 0);
+        } while ((digit & WireInteger.ContinuationBit) != 0);
         return value;
     }
 
@@ -70,26 +75,27 @@ internal ref struct WindowReader
 
     private void ReadFileHeader(bool allowLzma, IArmorVerifier? armor)
     {
-        if (ReadByte() != 0xD6 || ReadByte() != 0xC3 || ReadByte() != 0xC4)
+        if (ReadByte() != FileHeader.SignatureByte1 || ReadByte() != FileHeader.SignatureByte2 ||
+            ReadByte() != FileHeader.SignatureByte3)
             throw new InvalidDataException("Invalid VCDIFF signature.");
-        if (ReadByte() != 0)
+        if (ReadByte() != FileHeader.Version)
             throw new NotSupportedException("Only VCDIFF version 0 is supported.");
 
-        byte flags = ReadByte();
-        if ((flags & ~7) != 0)
+        var flags = (FileHeaderFlags)ReadByte();
+        if ((flags & ~FileHeaderFlags.KnownMask) != 0)
             throw new InvalidDataException("Invalid VCDIFF file header flags.");
-        if ((flags & 1) != 0)
+        if ((flags & FileHeaderFlags.SecondaryCompression) != 0)
         {
             byte compressor = ReadByte();
-            if (compressor != 2)
+            if (compressor != FileHeader.XdeltaLzmaCompressorId)
                 throw new NotSupportedException($"Unsupported VCDIFF secondary compressor ID {compressor}.");
             if (!allowLzma)
                 throw new NotSupportedException("Use the xdelta.Lzma package to decode xdelta3 LZMA secondary compression.");
             _hasSecondary = true;
         }
-        if ((flags & 2) != 0)
+        if ((flags & FileHeaderFlags.CustomCodeTable) != 0)
             throw new NotSupportedException("VCDIFF custom code tables are unsupported.");
-        if ((flags & 4) != 0)
+        if ((flags & FileHeaderFlags.ApplicationHeader) != 0)
             ReadApplicationHeader(ReadInteger(), armor);
     }
 
@@ -118,21 +124,27 @@ internal ref struct WindowReader
     internal bool TryReadWindow(long sourceLength, long previousTargetLength, long outputRemaining, out Window window)
     {
         window = default;
-        int flags = NextByte();
-        if (flags == -1)
+        int indicator = NextByte();
+        if (indicator == -1)
             return false;
-        if ((flags & ~7) != 0 || (flags & 3) == 3)
+        var flags = (WindowFlags)indicator;
+        var dictionaryFlags = flags & WindowFlags.DictionaryMask;
+        if ((flags & ~WindowFlags.KnownMask) != 0 || dictionaryFlags == WindowFlags.DictionaryMask)
             throw new InvalidDataException("Invalid VCDIFF window indicator.");
-        bool usePriorTarget = (flags & 2) != 0;
+        bool usePriorTarget = dictionaryFlags == WindowFlags.PriorTarget;
         long segmentLength = 0;
         long segmentOffset = 0;
-        if ((flags & 3) != 0)
+        if (dictionaryFlags != WindowFlags.None)
         {
             segmentLength = ReadInteger();
             segmentOffset = ReadInteger();
             long available = usePriorTarget ? previousTargetLength : sourceLength;
             if (available < 0)
-                throw new NotSupportedException("Source dictionaries require a readable, seekable source.");
+            {
+                throw new NotSupportedException(usePriorTarget
+                    ? "Prior-target dictionaries require a readable, seekable destination."
+                    : "Source dictionaries require a readable, seekable source.");
+            }
             if (segmentLength > available || segmentOffset > available - segmentLength)
                 throw new InvalidDataException("VCDIFF dictionary segment is outside the available data.");
         }
@@ -147,14 +159,15 @@ internal ref struct WindowReader
         if (segmentLength > long.MaxValue - targetLength)
             throw new InvalidDataException("VCDIFF dictionary and window exceed the supported address range.");
         byte compressedSections = ReadByte();
-        if ((compressedSections & ~7) != 0 || (compressedSections != 0 && !_hasSecondary))
+        const byte sectionMask = (byte)(SectionKind.Data | SectionKind.Instructions | SectionKind.Addresses);
+        if ((compressedSections & ~sectionMask) != 0 || (compressedSections != 0 && !_hasSecondary))
             throw new InvalidDataException("Invalid VCDIFF section compression flags.");
 
         int dataLength = ReadSectionLength();
         int instructionLength = ReadSectionLength();
         int addressLength = ReadSectionLength();
         uint? checksum = null;
-        if ((flags & 4) != 0)
+        if ((flags & WindowFlags.Adler32) != 0)
         {
             uint value = 0;
             for (int i = 0; i < sizeof(uint); i++)
@@ -162,8 +175,10 @@ internal ref struct WindowReader
             checksum = value;
         }
         long payloadLength = (long)dataLength + instructionLength + addressLength;
-        if (deltaLength - _headerBytes != payloadLength || payloadLength > Array.MaxLength)
-            throw new InvalidDataException("VCDIFF sections do not match the declared delta length or buffer capacity.");
+        if (deltaLength - _headerBytes != payloadLength)
+            throw new InvalidDataException("VCDIFF section lengths do not match the declared delta length.");
+        if (payloadLength > _encodedWindowLimit)
+            throw new InvalidDataException($"VCDIFF encoded sections exceed the {_encodedWindowLimit}-byte window payload limit.");
 
         var payload = ReadPayload((int)payloadLength);
         window = new Window(usePriorTarget, segmentOffset, segmentLength, (int)targetLength, checksum, compressedSections,

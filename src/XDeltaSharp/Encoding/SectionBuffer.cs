@@ -1,5 +1,5 @@
 using System.Buffers;
-using System.Numerics;
+using XDeltaSharp.Format;
 
 namespace XDeltaSharp.Encoding;
 
@@ -49,21 +49,5 @@ internal ref struct SectionBuffer(Span<byte> scratch)
     internal void Dispose()
     {
         if (_rented != null) ArrayPool<byte>.Shared.Return(_rented);
-    }
-}
-
-internal static class WireInteger
-{
-    internal static int Size(int value) => BitOperations.Log2((uint)value) / 7 + 1;
-
-    internal static int Write(Span<byte> bytes, int value)
-    {
-        int size = Size(value);
-        for (int i = size - 1; i >= 0; i--)
-        {
-            bytes[i] = (byte)((value & 127) | (i == size - 1 ? 0 : 128));
-            value >>= 7;
-        }
-        return size;
     }
 }

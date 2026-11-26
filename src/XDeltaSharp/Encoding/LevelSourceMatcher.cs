@@ -5,6 +5,10 @@ namespace XDeltaSharp.Encoding;
 /// <summary>One nine-byte landmark per bucket, sampled at the level's source stride.</summary>
 internal readonly ref struct LevelSourceMatcher
 {
+    private const int DirectSearchTargetLimit = 32;
+    private const int ShortTargetLimit = 256;
+    private const int LargeDictionaryThreshold = 2047;
+    private const int MaxSourceToShortTargetRatio = 64;
     private readonly ReadOnlySpan<byte> _source;
     private readonly MatchIndex _index;
     private readonly int _step;
@@ -16,7 +20,7 @@ internal readonly ref struct LevelSourceMatcher
     internal static int ScratchSize(int length, int targetLength, int step, MemoryMode memory)
     {
         int positions = Positions(length, step);
-        if (positions is 0 or > byte.MaxValue || targetLength <= 32) return 0;
+        if (positions is 0 or > byte.MaxValue || targetLength <= DirectSearchTargetLimit) return 0;
         return MatchIndex.Buckets(positions, memory);
     }
 
@@ -25,8 +29,10 @@ internal readonly ref struct LevelSourceMatcher
         _source = source;
         _step = step;
         int positions = Positions(source.Length, step);
-        bool disproportionateIndex = targetLength <= 256 && source.Length > Math.Max(2047, targetLength * 64);
-        if (targetLength <= 32 || positions == 0 || disproportionateIndex) return;
+        // A short target can be cheaper to search directly than to index a much larger dictionary.
+        bool disproportionateIndex = targetLength <= ShortTargetLimit &&
+            source.Length > Math.Max(LargeDictionaryThreshold, targetLength * MaxSourceToShortTargetRatio);
+        if (targetLength <= DirectSearchTargetLimit || positions == 0 || disproportionateIndex) return;
         _index = new MatchIndex(positions, MatchIndex.Buckets(positions, memory), scratch, links: 0);
         // Populate backwards so the earliest occurrence wins a bucket collision.
         for (int block = positions - 1; block >= 0; block--)

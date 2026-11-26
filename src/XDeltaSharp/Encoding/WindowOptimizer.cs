@@ -10,8 +10,8 @@ internal static class WindowOptimizer
     internal static byte[]? Finish(ref WindowWriter original, ReadOnlySpan<byte> source, int sourceOffset,
         ReadOnlySpan<byte> target, bool firstWindow, IBufferWriter<byte>? destination)
     {
-        // A single literal or RUN with no addresses is already compared with literal framing.
-        if (original.Addresses.IsEmpty && original.Instructions.Length <= 1)
+        // Finish already compares a lone ADD or RUN with a literal-only window.
+        if (original.IsEmptyOrSingleDataOperation)
             return original.Finish(target, firstWindow, destination);
 
         // Each default opcode contains at most one COPY or RUN. ADDs are implicit gaps.
@@ -29,19 +29,19 @@ internal static class WindowOptimizer
             int first = source.Length, end = 0;
             foreach (var op in operations)
             {
-                if (op.ReadOffset < 0 || op.ReadOffset >= source.Length) continue;
+                if (op.IsRun || op.ReadOffset >= source.Length) continue;
                 first = Math.Min(first, op.ReadOffset);
                 end = Math.Max(end, op.ReadOffset + op.Length);
             }
             int dictionarySize = end == 0 ? 0 : end - first;
             var candidate = new WindowWriter(end == 0 ? 0 : sourceOffset + first, dictionarySize,
-                stackalloc byte[128], stackalloc byte[64], stackalloc byte[64], stackalloc int[768]);
+                stackalloc byte[128], stackalloc byte[64], stackalloc byte[64], stackalloc int[AddressCache.SameSize]);
             try
             {
                 int written = 0;
                 foreach (var op in operations)
                 {
-                    if (op.ReadOffset < 0)
+                    if (op.IsRun)
                     {
                         if (op.Length <= 8 && candidate.RunSavings(op.WriteOffset, op.Length) <= 0) continue;
                         candidate.Add(target[written..op.WriteOffset]);
@@ -58,11 +58,16 @@ internal static class WindowOptimizer
                     written = op.End;
                 }
                 candidate.Add(target[written..]);
-                if (candidate.FramedSize(target.Length) < original.FramedSize(target.Length))
-                    return candidate.Finish(target, firstWindow, destination);
+                var candidateLayout = candidate.Measure(target.Length);
+                var originalLayout = original.Measure(target.Length);
+                return candidateLayout.Length < originalLayout.Length
+                    ? candidate.Finish(target, firstWindow, destination, candidateLayout)
+                    : original.Finish(target, firstWindow, destination, originalLayout);
             }
-            finally { candidate.Dispose(); }
-            return original.Finish(target, firstWindow, destination);
+            finally
+            {
+                candidate.Dispose();
+            }
         }
         finally
         {
@@ -75,8 +80,8 @@ internal static class WindowOptimizer
     {
         var instructions = new SectionReader(codes);
         var addresses = new SectionReader(operands);
-        Span<long> near = stackalloc long[4];
-        Span<long> same = operands.IsEmpty ? [] : stackalloc long[3 * 256];
+        Span<long> near = stackalloc long[AddressCache.NearSize];
+        Span<long> same = operands.IsEmpty ? [] : stackalloc long[AddressCache.SameSize];
         near.Clear();
         same.Clear();
         int nextNear = 0, written = 0, count = 0;
@@ -94,7 +99,7 @@ internal static class WindowOptimizer
             int length = current.Size == 0 ? instructions.ReadLength() : current.Size;
             if (current.Kind != InstructionKind.Add)
             {
-                int address = current.Kind == InstructionKind.Run ? -1 :
+                int address = current.Kind == InstructionKind.Run ? CopyMatch.RunOffset :
                     (int)AddressCache.ReadAddress(current.Mode, sourceLength + written, ref addresses, near, same, ref nextNear);
                 operations[count++] = new CopyMatch(address, written, length);
             }
@@ -110,7 +115,7 @@ internal static class WindowOptimizer
         {
             var op = ops[i];
             int length = Math.Min(op.Length, limit - op.WriteOffset);
-            if (length < (op.ReadOffset < 0 ? 3 : 4)) continue;
+            if (length < (op.IsRun ? 3 : 4)) continue;
             int start = op.WriteOffset, address = op.ReadOffset;
             if (address < 0)
             {
@@ -144,7 +149,7 @@ internal static class WindowOptimizer
             var gap = target[op.End..limit];
             if (gap.IsEmpty) continue;
             int extra;
-            if (op.ReadOffset < 0)
+            if (op.IsRun)
             {
                 extra = gap.IndexOfAnyExcept(target[op.WriteOffset]);
                 if (extra < 0) extra = gap.Length;

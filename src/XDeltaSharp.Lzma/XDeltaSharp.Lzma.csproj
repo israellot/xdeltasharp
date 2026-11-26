@@ -1,21 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
     <PackageId>xdelta.Lzma</PackageId>
-    <RepositoryUrl>https://github.com/israellot/xdeltasharp</RepositoryUrl>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <Title>XDeltaSharp LZMA decoder</Title>
     <Description>Apply xdelta3 VCDIFF patches with LZMA secondary compression in .NET 8. Decode mixed raw and compressed sections across windows to an array, span, or stream.</Description>
     <PackageTags>vcdiff;xdelta;xdelta3;lzma;lzma2;binary-patch</PackageTags>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../XDeltaSharp/XDeltaSharp.csproj" />
     <PackageReference Include="SharpCompress" Version="0.50.12" />
-    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
     <None Update="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

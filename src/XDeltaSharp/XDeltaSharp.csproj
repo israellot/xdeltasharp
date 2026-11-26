@@ -1,22 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
     <PackageId>xdelta</PackageId>
     <Title>XDeltaSharp</Title>
     <Description>Create and apply RFC 3284 VCDIFF binary patches in .NET 8. Encode at levels 0–9 and decode to arrays, spans, or streams with per-window and total output limits.</Description>
     <PackageTags>vcdiff;xdelta;xdelta3;binary-diff;delta-compression;patch</PackageTags>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <RepositoryUrl>https://github.com/israellot/xdeltasharp</RepositoryUrl>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="XDeltaSharp.Tests" />
     <InternalsVisibleTo Include="XDeltaSharp.Lzma" />
     <InternalsVisibleTo Include="XDeltaSharp.Blake3" />
-    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="/" />
   </ItemGroup>
