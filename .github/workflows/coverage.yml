@@ -16,8 +16,6 @@ concurrency:
 jobs:
   coverage:
     runs-on: ubuntu-latest
-    env:
-      RELEASE_SDK: 8.0.428
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -27,9 +25,9 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/release-dotnet
         with:
-          dotnet-version: ${{ env.RELEASE_SDK }}
+          global-json-file: .github/global.json
       - name: Check release SDK
-        run: test "$(dotnet --version)" = "$RELEASE_SDK"
+        run: test "$(dotnet --version)" = "$(jq -r .sdk.version .github/global.json)"
       - run: dotnet build XDeltaSharp.sln -c Release
       - run: dotnet format whitespace XDeltaSharp.sln --no-restore --verify-no-changes
       - name: Verify NuGet packages and run their examples

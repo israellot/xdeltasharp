@@ -88,3 +88,9 @@ The libraries target .NET 8 and use C# 12. Release CI uses the exact SDK pinned 
 Run `dotnet format whitespace XDeltaSharp.sln --verify-no-changes` to check formatting. The build compares the three libraries to their `PublicAPI.Shipped.txt` baselines. Record intentional additions in the corresponding `PublicAPI.Unshipped.txt` file.
 
 Run `python3 eng/test-packages.py` to build the three NuGet packages and their symbols, then compile and run the examples above against a fresh local feed. The file example uses the checked-in multi-window xdelta3 fixture with LZMA compression and BLAKE3 armor.
+
+## Publishing to NuGet.org
+
+All three packages share the `VersionPrefix` in `src/Directory.Build.props`. The first release is **1.0.0**. Pushing the matching Git tag `v1.0.0` runs the tests, builds the three packages and their symbols, verifies the packaged examples, and publishes those exact artifacts. For subsequent releases, update the shared version before tagging the release commit. Running **Publish NuGet packages** manually builds and verifies downloadable artifacts.
+
+Before the first release, create a NuGet.org trusted publishing policy under the `israellot` profile for the GitHub repository `israellot/xdeltasharp`, workflow filename `publish.yml`, and environment `nuget`. Allow new packages and new versions for `xdelta`, `xdelta.Lzma`, and `xdelta.Blake3`. GitHub Actions exchanges its OIDC identity for a short-lived publishing key on each tagged release. [NuGet trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing)

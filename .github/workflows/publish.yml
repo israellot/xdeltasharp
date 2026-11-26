@@ -1,0 +1,86 @@
+name: Publish NuGet packages
+
+on:
+  push:
+    tags: ['v[0-9]*']
+  pull_request:
+    paths:
+      - .github/workflows/publish.yml
+      - .github/global.json
+      - src/Directory.Build.props
+      - eng/test-packages.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nuget-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name != 'push' || !github.event.deleted
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/release-dotnet
+        with:
+          global-json-file: .github/global.json
+      - name: Check the release SDK and package version
+        run: |
+          test "$(dotnet --version)" = "$(jq -r .sdk.version .github/global.json)"
+          version=$(dotnet msbuild src/XDeltaSharp/XDeltaSharp.csproj -nologo -getProperty:PackageVersion -p:Configuration=Release)
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME must match the package version v$version"
+            exit 1
+          fi
+          echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
+      - name: Build and test
+        run: |
+          dotnet build XDeltaSharp.sln -c Release
+          dotnet test XDeltaSharp.sln -c Release --no-build -- xUnit.ParallelizeTestCollections=false
+      - name: Pack and test the release artifacts
+        run: |
+          dotnet pack XDeltaSharp.sln -c Release --no-build -o "$RUNNER_TEMP/packages"
+          python3 eng/test-packages.py --verify "$RUNNER_TEMP/packages" "$PACKAGE_VERSION"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nuget-packages
+          path: ${{ runner.temp }}/packages/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: nuget-packages
+          path: packages
+      - name: Authenticate to NuGet.org
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: israellot
+      - name: Publish packages and symbols
+        env:
+          NUGET_PUSH_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          NUGET_SOURCE: https://api.nuget.org/v3/index.json
+        run: |
+          for package in packages/*.nupkg; do
+            dotnet nuget push "$package" --source "$NUGET_SOURCE" --api-key "$NUGET_PUSH_KEY" --no-symbols --skip-duplicate
+          done
+          for symbols in packages/*.snupkg; do
+            dotnet nuget push "$symbols" --source "$NUGET_SOURCE" --api-key "$NUGET_PUSH_KEY" --skip-duplicate
+          done

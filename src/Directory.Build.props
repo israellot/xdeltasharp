@@ -2,6 +2,7 @@
   <Import Project="../Directory.Build.props" />
   <PropertyGroup>
     <IsPackable>true</IsPackable>
+    <VersionPrefix>1.0.0</VersionPrefix>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Authors>Israel Lot</Authors>
     <RepositoryUrl>https://github.com/israellot/xdeltasharp</RepositoryUrl>
