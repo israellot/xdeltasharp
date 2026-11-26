@@ -22,6 +22,16 @@ if (args is ["--levels", var levelSource, var levelTarget])
     return;
 }
 const string encoderHeader = "Case,Level,Memory mode,Source B,Target B,Patch B,API,ns/op,Allocated B/op";
+if (args is ["--short-search"])
+{
+    byte[] source = Bytes(64 << 20);
+    byte[] unrelated = new byte[256];
+    new Random(99).NextBytes(unrelated);
+    Console.WriteLine(encoderHeader);
+    MeasureEncoder("unrelated short target", source, unrelated, 3, MemoryMode.Default);
+    MeasureEncoder("distant short match", source, source[^256..], 3, MemoryMode.Default);
+    return;
+}
 if (args is ["--afterburner", var originalFile, var targetFile])
 {
     var source = File.ReadAllBytes(originalFile);
@@ -35,7 +45,7 @@ if (args is ["--afterburner", var originalFile, var targetFile])
     return;
 }
 if (args.Length != 0 && (args.Length != 2 || args[0].StartsWith("--", StringComparison.Ordinal)))
-    throw new ArgumentException("Pass a source and target pair, --decode, or --levels, --afterburner, or --profile-default followed by the pair.");
+    throw new ArgumentException("Pass a source and target pair, --decode, --short-search, or --levels, --afterburner, or --profile-default followed by the pair.");
 
 Console.WriteLine(encoderHeader);
 foreach (int size in new[] { 0, 4, 8, 16, 32, 64, 256, 2047, 2048, 524287, 524288 })

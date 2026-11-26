@@ -4,7 +4,7 @@ using global::Blake3;
 namespace XDeltaSharp.Blake3;
 
 /// <summary>Reads xdelta3's target/compressor[/source/compressor] metadata without buffering filenames.</summary>
-internal sealed class ArmorVerifier : IArmorVerifier
+internal sealed class ArmorVerifier(bool requireDigests) : IArmorVerifier
 {
     private readonly char[] _hex = new char[64];
     private int _digits = -1;
@@ -53,6 +53,15 @@ internal sealed class ArmorVerifier : IArmorVerifier
 
     // xdelta3 recognizes the two-field and four-field forms only.
     private byte[]? Target => _field is 1 or 3 ? _target : null;
+
+    public void ValidateHeader(bool usesSource)
+    {
+        if (!requireDigests) return;
+        if (Target == null)
+            throw new InvalidDataException("The patch requires a BLAKE3 target digest.");
+        if ((usesSource || _field == 3) && _source == null)
+            throw new InvalidDataException("The patch requires a BLAKE3 source digest.");
+    }
 
     public void VerifySource(ReadOnlySpan<byte> bytes) => VerifyBytes(bytes, _source, "source");
     public void VerifyTarget(ReadOnlySpan<byte> bytes) => VerifyBytes(bytes, Target, "target");

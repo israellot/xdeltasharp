@@ -25,9 +25,9 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/release-dotnet
         with:
-          global-json-file: .github/global.json
+          global-json-file: global.json
       - name: Check release SDK
-        run: test "$(dotnet --version)" = "$(jq -r .sdk.version .github/global.json)"
+        run: test "$(dotnet --version)" = "$(jq -r .sdk.version global.json)"
       - run: dotnet build XDeltaSharp.sln -c Release
       - run: dotnet format whitespace XDeltaSharp.sln --no-restore --verify-no-changes
       - name: Verify NuGet packages and run their examples
@@ -36,6 +36,11 @@ jobs:
         run: >-
           dotnet test tests/XDeltaSharp.Tests/XDeltaSharp.Tests.csproj -c Release --no-build
           --filter 'Category=Allocation' -- xUnit.ParallelizeTestCollections=false
+      - name: Decode encoder output with the xdelta3 CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xdelta3
+          XDELTA3=xdelta3 dotnet test tests/XDeltaSharp.Tests/XDeltaSharp.Tests.csproj -c Release --no-build --filter 'Category=Interop'
       - name: Measure library coverage
         run: >-
           dotnet test tests/XDeltaSharp.Tests/XDeltaSharp.Tests.csproj -c Release --no-build
@@ -62,7 +67,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
-          dotnet-version: 8.0.x
+          global-json-file: global.json
       - run: dotnet test XDeltaSharp.sln -c Debug -- xUnit.ParallelizeTestCollections=false
 
   update-badges:

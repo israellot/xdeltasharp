@@ -1,5 +1,6 @@
 using System.Buffers;
 using XDeltaSharp.Decoding;
+using XDeltaSharp.Encoding;
 using Xunit;
 using static XDeltaSharp.Tests.WindowVectors;
 
@@ -39,6 +40,32 @@ public class DefaultEncoderTests
         var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
         Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
         Assert.True(window.Data.IsEmpty);
+        AssertDecodes(source, patch, target);
+    }
+
+    [Theory]
+    [InlineData(24)]
+    [InlineData(256)]
+    public void ShortTargetBoundsDistantSearchAndStillFindsAMovedSuffix(int length)
+    {
+        byte[] source = Bytes(1 << 20);
+        const int offset = 800_003;
+        byte[] target = source[offset..(offset + length)];
+        using var matcher = new LevelSourceMatcher(source, length, 8, MemoryMode.Default, []);
+        int distantHits = 0;
+        // Every probe has a distant match. With prediction disabled, each hit requires a scan.
+        for (int probe = 0; probe <= length - 4; probe++)
+        {
+            if (matcher.Find(target, probe, 0, 4, -1).Length != 0) distantHits++;
+            Assert.Equal(length, matcher.Find(target, probe, 0, 4, offset + probe).Length);
+        }
+        Assert.InRange(distantHits, 1, 8);
+
+        target[0] ^= 0xFF;
+        byte[] patch = Vcdiff.Encode(source, target);
+        var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
+        Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));
+        Assert.Equal(target[..1], window.Data.ToArray());
         AssertDecodes(source, patch, target);
     }
 

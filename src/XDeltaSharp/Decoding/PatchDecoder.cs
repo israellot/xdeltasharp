@@ -5,12 +5,26 @@ namespace XDeltaSharp.Decoding;
 /// <summary>Applies patches to each supported destination using the same window reader and instruction decoder.</summary>
 internal static class PatchDecoder
 {
+    // xdelta.Lzma 1.0.0 calls these three signatures through InternalsVisibleTo.
     internal static byte[] Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, int maxOutputBytes,
-        int maxWindowBytes, Func<ISecondaryDecoder>? createSecondary, IArmorVerifier? armor = null)
+        int maxWindowBytes, Func<ISecondaryDecoder>? createSecondary, IArmorVerifier? armor = null) =>
+        DecodeWithSecondary(source, patch, maxOutputBytes, maxWindowBytes, SecondaryDecoderFactory.From(createSecondary), armor);
+
+    internal static int Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
+        int maxWindowBytes, Func<ISecondaryDecoder>? createSecondary, IArmorVerifier? armor = null) =>
+        DecodeWithSecondary(source, patch, destination, maxWindowBytes, SecondaryDecoderFactory.From(createSecondary), armor);
+
+    internal static long Decode(Stream source, Stream patch, Stream destination, long maxOutputBytes,
+        int maxWindowBytes, int maxEncodedWindowBytes, Func<ISecondaryDecoder>? createSecondary, IArmorVerifier? armor = null) =>
+        DecodeWithSecondary(source, patch, destination, maxOutputBytes, maxWindowBytes, maxEncodedWindowBytes,
+            SecondaryDecoderFactory.From(createSecondary), armor);
+
+    internal static byte[] DecodeWithSecondary(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, int maxOutputBytes,
+        int maxWindowBytes, SecondaryDecoderFactory? secondaryFactory, IArmorVerifier? armor = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxOutputBytes);
         ValidateWindowLimit(maxWindowBytes);
-        var reader = new WindowReader(patch, maxWindowBytes, createSecondary != null, armor);
+        var reader = new WindowReader(patch, maxWindowBytes, secondaryFactory != null, armor);
         armor?.VerifySource(source);
         var sizing = reader;
         int total = 0;
@@ -19,13 +33,13 @@ internal static class PatchDecoder
             total += window.TargetLength;
 
         var result = new byte[total];
-        DecodeWindows(reader, source, result, createSecondary);
+        DecodeWindows(reader, source, result, secondaryFactory);
         armor?.VerifyTarget(result);
         return result;
     }
 
-    internal static int Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
-        int maxWindowBytes, Func<ISecondaryDecoder>? createSecondary, IArmorVerifier? armor = null)
+    internal static int DecodeWithSecondary(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
+        int maxWindowBytes, SecondaryDecoderFactory? secondaryFactory, IArmorVerifier? armor = null)
     {
         ValidateWindowLimit(maxWindowBytes);
         if (source.Overlaps(destination))
@@ -33,15 +47,15 @@ internal static class PatchDecoder
         if (patch.Overlaps(destination))
             patch = patch.ToArray();
 
-        var reader = new WindowReader(patch, maxWindowBytes, createSecondary != null, armor);
+        var reader = new WindowReader(patch, maxWindowBytes, secondaryFactory != null, armor);
         armor?.VerifySource(source);
-        int written = DecodeWindows(reader, source, destination, createSecondary);
+        int written = DecodeWindows(reader, source, destination, secondaryFactory);
         armor?.VerifyTarget(destination[..written]);
         return written;
     }
 
     private static int DecodeWindows(WindowReader reader, ReadOnlySpan<byte> source, Span<byte> destination,
-        Func<ISecondaryDecoder>? createSecondary)
+        SecondaryDecoderFactory? secondaryFactory)
     {
         AddressCache? cache = null;
         ISecondaryDecoder? secondary = null;
@@ -56,7 +70,7 @@ internal static class PatchDecoder
                 ReadOnlySpan<byte> bytes = window.UsePriorTarget ? destination[..written] : source;
                 var dictionary = new WindowDictionary(bytes.Slice((int)window.SegmentOffset, (int)window.SegmentLength));
                 var decoder = new WindowDecoder(window, dictionary, destination.Slice(written, window.TargetLength),
-                    createSecondary, ref secondary);
+                    secondaryFactory, ref secondary);
                 decoder.Decode(ref cache);
                 written += window.TargetLength;
             }
@@ -68,8 +82,8 @@ internal static class PatchDecoder
         return written;
     }
 
-    internal static long Decode(Stream source, Stream patch, Stream destination, long maxOutputBytes,
-        int maxWindowBytes, int maxEncodedWindowBytes, Func<ISecondaryDecoder>? createSecondary, IArmorVerifier? armor = null)
+    internal static long DecodeWithSecondary(Stream source, Stream patch, Stream destination, long maxOutputBytes,
+        int maxWindowBytes, int maxEncodedWindowBytes, SecondaryDecoderFactory? secondaryFactory, IArmorVerifier? armor = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(patch);
@@ -86,10 +100,11 @@ internal static class PatchDecoder
         long outputStart = destination.CanSeek ? destination.Position : 0;
         bool canReadPriorTarget = destination.CanRead && destination.CanSeek;
         long limit = Math.Min(maxOutputBytes, long.MaxValue - outputStart);
-        var reader = new WindowReader(patch, maxWindowBytes, maxEncodedWindowBytes, createSecondary != null, armor);
+        var reader = new WindowReader(patch, maxWindowBytes, maxEncodedWindowBytes, secondaryFactory != null, armor);
         AddressCache? cache = null;
         ISecondaryDecoder? secondary = null;
         byte[] buffer = [];
+        Span<byte> page = source is FileStream || destination is FileStream ? stackalloc byte[WindowDictionary.PageSize] : [];
         long written = 0;
         try
         {
@@ -101,9 +116,9 @@ internal static class PatchDecoder
                     buffer = new byte[window.TargetLength];
                 var target = buffer.AsSpan(0, window.TargetLength);
                 var dictionary = window.UsePriorTarget
-                    ? new WindowDictionary(destination, outputStart + window.SegmentOffset, window.SegmentLength)
-                    : new WindowDictionary(source, sourceStart + window.SegmentOffset, window.SegmentLength);
-                var decoder = new WindowDecoder(window, dictionary, target, createSecondary, ref secondary);
+                    ? new WindowDictionary(destination, outputStart + window.SegmentOffset, window.SegmentLength, page)
+                    : new WindowDictionary(source, sourceStart + window.SegmentOffset, window.SegmentLength, page);
+                var decoder = new WindowDecoder(window, dictionary, target, secondaryFactory, ref secondary);
                 try
                 {
                     decoder.Decode(ref cache);

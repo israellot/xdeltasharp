@@ -4,7 +4,8 @@ namespace XDeltaSharp.Lzma;
 
 /// <summary>Applies VCDIFF patches with optional xdelta3 LZMA secondary compression.</summary>
 /// <remarks>Handles raw and compressed sections in the same patch and carries LZMA state across windows.
-/// Each LZMA dictionary and each expanded section has a 64 MiB limit.</remarks>
+/// Each LZMA dictionary and each expanded section has a default 64 MiB limit.
+/// The DecodeWithSecondaryLimits overloads can lower both limits.</remarks>
 /// <example><code>
 /// long written = LzmaVcdiff.Decode(sourceStream, patchStream, outputStream, maxOutputBytes: 1L &lt;&lt; 30);
 /// </code></example>
@@ -98,7 +99,7 @@ public static class LzmaVcdiff
     /// table or a different secondary compressor.</exception>
     public static byte[] Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch,
         VcdiffArmor armor, int maxOutputBytes = int.MaxValue, int maxWindowBytes = Vcdiff.MaxTargetWindowBytes)
-        => PatchDecoder.Decode(source, patch, maxOutputBytes, maxWindowBytes, LzmaSections.Create, armor.CreateVerifier());
+        => PatchDecoder.DecodeWithSecondary(source, patch, maxOutputBytes, maxWindowBytes, LzmaSections.Default, armor.CreateVerifier());
 
     /// <summary>Reconstructs the target in a caller-provided buffer from a plain or LZMA-compressed xdelta3 patch, with
     /// optional armor verification.</summary>
@@ -123,7 +124,7 @@ public static class LzmaVcdiff
     /// table or a different secondary compressor.</exception>
     public static int Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
         VcdiffArmor armor, int maxWindowBytes = Vcdiff.MaxTargetWindowBytes)
-        => PatchDecoder.Decode(source, patch, destination, maxWindowBytes, LzmaSections.Create, armor.CreateVerifier());
+        => PatchDecoder.DecodeWithSecondary(source, patch, destination, maxWindowBytes, LzmaSections.Default, armor.CreateVerifier());
 
     /// <summary>Reconstructs the target one window at a time in the output stream from a plain or LZMA-compressed
     /// xdelta3 patch, with optional armor verification.</summary>
@@ -188,6 +189,65 @@ public static class LzmaVcdiff
     /// lacks the required capabilities.</exception>
     public static long DecodeWithLimits(Stream source, Stream patch, Stream destination, int maxEncodedWindowBytes,
         long maxOutputBytes = long.MaxValue, int maxWindowBytes = Vcdiff.MaxTargetWindowBytes, VcdiffArmor armor = default)
-        => PatchDecoder.Decode(source, patch, destination, maxOutputBytes, maxWindowBytes, maxEncodedWindowBytes,
-            LzmaSections.Create, armor.CreateVerifier());
+        => PatchDecoder.DecodeWithSecondary(source, patch, destination, maxOutputBytes, maxWindowBytes, maxEncodedWindowBytes,
+            LzmaSections.Default, armor.CreateVerifier());
+
+    // The three overloads have distinct required arguments for array, span, and stream output.
+#pragma warning disable RS0026
+    /// <summary>Returns a new target array with explicit limits on LZMA section expansion and dictionaries.</summary>
+    /// <param name="source">Original dictionary bytes, or an empty span for a dictionary-free patch.</param>
+    /// <param name="patch">Complete VCDIFF patch bytes.</param>
+    /// <param name="maxExpandedSectionBytes">Inclusive limit on each expanded LZMA section, from zero through 64 MiB.</param>
+    /// <param name="maxDictionaryBytes">Inclusive limit on each declared LZMA dictionary, from zero through 64 MiB.</param>
+    /// <param name="maxOutputBytes">Inclusive limit on the total reconstructed target bytes.</param>
+    /// <param name="maxWindowBytes">Inclusive limit on each target window, from zero through 64 MiB.</param>
+    /// <param name="armor">Optional digest verification.</param>
+    /// <remarks>Data, instructions, and addresses have independent buffers and dictionaries.
+    /// A dictionary can retain history across target windows.</remarks>
+    /// <exception cref="InvalidDataException">The patch is malformed, fails an integrity check, or exceeds a limit.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A byte limit is outside its supported range.</exception>
+    public static byte[] DecodeWithSecondaryLimits(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch,
+        int maxExpandedSectionBytes, int maxDictionaryBytes, int maxOutputBytes = int.MaxValue,
+        int maxWindowBytes = Vcdiff.MaxTargetWindowBytes, VcdiffArmor armor = default)
+        => PatchDecoder.DecodeWithSecondary(source, patch, maxOutputBytes, maxWindowBytes,
+            LzmaSections.WithLimits(maxExpandedSectionBytes, maxDictionaryBytes), armor.CreateVerifier());
+
+    /// <summary>Decodes into a caller-provided buffer with explicit limits on LZMA section expansion and dictionaries.</summary>
+    /// <param name="source">Original dictionary bytes, or an empty span for a dictionary-free patch.</param>
+    /// <param name="patch">Complete VCDIFF patch bytes.</param>
+    /// <param name="destination">Buffer with room for the entire target.</param>
+    /// <param name="maxExpandedSectionBytes">Inclusive limit on each expanded LZMA section, from zero through 64 MiB.</param>
+    /// <param name="maxDictionaryBytes">Inclusive limit on each declared LZMA dictionary, from zero through 64 MiB.</param>
+    /// <param name="maxWindowBytes">Inclusive limit on each target window, from zero through 64 MiB.</param>
+    /// <param name="armor">Optional digest verification.</param>
+    /// <returns>The number of target bytes written.</returns>
+    /// <remarks>A failure can leave partial output in the destination.</remarks>
+    /// <exception cref="InvalidDataException">The patch is malformed, fails an integrity check, or exceeds a limit.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A byte limit is outside its supported range.</exception>
+    public static int DecodeWithSecondaryLimits(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
+        int maxExpandedSectionBytes, int maxDictionaryBytes, int maxWindowBytes = Vcdiff.MaxTargetWindowBytes,
+        VcdiffArmor armor = default)
+        => PatchDecoder.DecodeWithSecondary(source, patch, destination, maxWindowBytes,
+            LzmaSections.WithLimits(maxExpandedSectionBytes, maxDictionaryBytes), armor.CreateVerifier());
+
+    /// <summary>Decodes a stream one window at a time with limits on encoded payload, LZMA expansion, and dictionaries.</summary>
+    /// <param name="source">Original seekable dictionary stream, or <see cref="Stream.Null"/> for a dictionary-free patch.</param>
+    /// <param name="patch">Readable patch stream positioned at the VCDIFF header.</param>
+    /// <param name="destination">Writable output stream. Prior-target copies also require reading and seeking.</param>
+    /// <param name="maxEncodedWindowBytes">Inclusive limit on the combined encoded section sizes per window.</param>
+    /// <param name="maxExpandedSectionBytes">Inclusive limit on each expanded LZMA section, from zero through 64 MiB.</param>
+    /// <param name="maxDictionaryBytes">Inclusive limit on each declared LZMA dictionary, from zero through 64 MiB.</param>
+    /// <param name="maxOutputBytes">Inclusive limit on the total reconstructed target bytes.</param>
+    /// <param name="maxWindowBytes">Inclusive limit on each target window, from zero through 64 MiB.</param>
+    /// <param name="armor">Optional digest verification.</param>
+    /// <returns>The number of target bytes written.</returns>
+    /// <remarks>Streams remain open. A failure can leave completed windows in the destination.</remarks>
+    /// <exception cref="InvalidDataException">The patch is malformed, fails an integrity check, or exceeds a limit.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A byte limit is outside its supported range.</exception>
+    public static long DecodeWithSecondaryLimits(Stream source, Stream patch, Stream destination, int maxEncodedWindowBytes,
+        int maxExpandedSectionBytes, int maxDictionaryBytes, long maxOutputBytes = long.MaxValue,
+        int maxWindowBytes = Vcdiff.MaxTargetWindowBytes, VcdiffArmor armor = default)
+        => PatchDecoder.DecodeWithSecondary(source, patch, destination, maxOutputBytes, maxWindowBytes, maxEncodedWindowBytes,
+            LzmaSections.WithLimits(maxExpandedSectionBytes, maxDictionaryBytes), armor.CreateVerifier());
+#pragma warning restore RS0026
 }

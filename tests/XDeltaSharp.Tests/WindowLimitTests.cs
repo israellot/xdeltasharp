@@ -94,6 +94,30 @@ public class WindowLimitTests
     }
 
     [Fact]
+    public void FileSourceReusesNearbyReadsWithinTheSelectedSegment()
+    {
+        const int start = 3, segmentOffset = 4, segmentLength = 4104;
+        int[] offsets = [80, 8, 0, 128, 4094, 4096, 4100, 4098];
+        byte[] bytes = new byte[start + segmentOffset + segmentLength + 10];
+        new Random(143).NextBytes(bytes);
+        using var source = new CountingFile(Path.GetTempFileName());
+        source.Write(bytes);
+        source.Position = start;
+        byte[] patch = Patch(Window(4 * offsets.Length, [], Enumerable.Repeat((byte)20, offsets.Length).ToArray(),
+            offsets.SelectMany(offset => Integer(offset)).ToArray(), 1, segmentLength, segmentOffset));
+
+        using var output = new MemoryStream();
+        Vcdiff.Decode(source, new MemoryStream(patch), output);
+
+        byte[] expected = offsets.SelectMany(offset => bytes.AsSpan(start + segmentOffset + offset, 4).ToArray()).ToArray();
+        Assert.Equal(expected, output.ToArray());
+        Assert.Equal(start, source.Position);
+        Assert.True(source.Reads.Count < offsets.Length);
+        Assert.All(source.Reads, read => Assert.InRange(read.Position,
+            start + segmentOffset, start + segmentOffset + segmentLength - read.Length));
+    }
+
+    [Fact]
     public void PriorTargetUsesOriginalOutputPositionAndRestoresWriteCursor()
     {
         byte[] patch = Patch(Window(6, "ABCDEF"u8.ToArray(), [7], []), Window(4, [], [20], [0], 2, 4, 1));
@@ -103,6 +127,26 @@ public class WindowLimitTests
         Assert.Equal(10, Vcdiff.Decode(Stream.Null, input, output));
         Assert.Equal("prefixABCDEFBCDE"u8.ToArray(), output.ToArray());
         Assert.Equal(output.Length, output.Position);
+    }
+
+    [Fact]
+    public void FileDestinationAppendsAfterCachedCopiesFromDifferentPriorSegments()
+    {
+        byte[] initial = "ABCDEFGHIJKLMNOPabcdefghijklmnop"u8.ToArray();
+        byte[] patch = Patch(Window(32, initial, [1, 32], []),
+            Window(12, [], [20, 20, 20], [4, 0, 8], 2, 16, 0),
+            Window(12, [], [20, 20, 20], [8, 4, 0], 2, 16, 16));
+        using var output = new CountingFile(Path.GetTempFileName());
+        output.Write("prefix"u8);
+
+        Assert.Equal(56, Vcdiff.Decode(Stream.Null, new MemoryStream(patch), output));
+        Assert.True(output.Reads.Count < 6);
+        Assert.Equal(output.Length, output.Position);
+        output.WriteByte((byte)'!');
+        output.Position = 0;
+        byte[] bytes = new byte[output.Length];
+        output.ReadExactly(bytes);
+        Assert.Equal("prefixABCDEFGHIJKLMNOPabcdefghijklmnopEFGHABCDIJKLijklefghabcd!"u8.ToArray(), bytes);
     }
 
     [Theory]
@@ -180,6 +224,17 @@ public class WindowLimitTests
     {
         public override bool CanSeek => false;
         public override int Read(Span<byte> buffer) => base.Read(buffer[..Math.Min(2, buffer.Length)]);
+    }
+
+    private sealed class CountingFile(string path)
+        : FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose)
+    {
+        internal List<(long Position, int Length)> Reads { get; } = [];
+        public override int Read(Span<byte> buffer)
+        {
+            Reads.Add((Position, buffer.Length));
+            return base.Read(buffer);
+        }
     }
 
     // Model a large dictionary without reserving gigabytes of disk space in the test suite.

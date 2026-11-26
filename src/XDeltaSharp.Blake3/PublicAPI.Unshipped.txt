@@ -1,1 +1,2 @@
 #nullable enable
+static XDeltaSharp.Blake3.Blake3Armor.Require.get -> XDeltaSharp.VcdiffArmor

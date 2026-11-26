@@ -1,5 +1,1 @@
 #nullable enable
-*REMOVED*static XDeltaSharp.Vcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch, int maxOutputBytes, int maxWindowBytes) -> byte[]!
-static XDeltaSharp.Vcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch) -> byte[]!
-static XDeltaSharp.Vcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch, int maxOutputBytes = 2147483647, int maxWindowBytes = 67108864) -> byte[]!
-static XDeltaSharp.Vcdiff.DecodeWithLimits(System.IO.Stream! source, System.IO.Stream! patch, System.IO.Stream! destination, int maxEncodedWindowBytes, long maxOutputBytes = 9223372036854775807, int maxWindowBytes = 67108864, XDeltaSharp.VcdiffArmor armor = default(XDeltaSharp.VcdiffArmor)) -> long

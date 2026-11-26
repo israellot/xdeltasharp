@@ -7,6 +7,7 @@ internal ref struct WindowReader
 {
     private ReadOnlySpan<byte> _remaining;
     private readonly Stream? _stream;
+    private readonly IArmorVerifier? _armor;
     private readonly int _windowLimit;
     private readonly int _encodedWindowLimit;
     private byte[] _sectionBuffer;
@@ -16,20 +17,22 @@ internal ref struct WindowReader
     internal WindowReader(ReadOnlySpan<byte> patch, int windowLimit, bool allowLzma = false, IArmorVerifier? armor = null)
     {
         _remaining = patch;
+        _armor = armor;
         _encodedWindowLimit = Array.MaxLength;
         _sectionBuffer = [];
         _windowLimit = windowLimit;
-        ReadFileHeader(allowLzma, armor);
+        ReadFileHeader(allowLzma);
     }
 
     internal WindowReader(Stream patch, int windowLimit, int maxEncodedWindowBytes, bool allowLzma = false,
         IArmorVerifier? armor = null)
     {
         _stream = patch;
+        _armor = armor;
         _encodedWindowLimit = maxEncodedWindowBytes;
         _sectionBuffer = [];
         _windowLimit = windowLimit;
-        ReadFileHeader(allowLzma, armor);
+        ReadFileHeader(allowLzma);
     }
 
     private int NextByte()
@@ -73,7 +76,7 @@ internal ref struct WindowReader
         return (int)value;
     }
 
-    private void ReadFileHeader(bool allowLzma, IArmorVerifier? armor)
+    private void ReadFileHeader(bool allowLzma)
     {
         if (ReadByte() != FileHeader.SignatureByte1 || ReadByte() != FileHeader.SignatureByte2 ||
             ReadByte() != FileHeader.SignatureByte3)
@@ -96,16 +99,17 @@ internal ref struct WindowReader
         if ((flags & FileHeaderFlags.CustomCodeTable) != 0)
             throw new NotSupportedException("VCDIFF custom code tables are unsupported.");
         if ((flags & FileHeaderFlags.ApplicationHeader) != 0)
-            ReadApplicationHeader(ReadInteger(), armor);
+            ReadApplicationHeader(ReadInteger());
+        _armor?.ValidateHeader(usesSource: false);
     }
 
-    private void ReadApplicationHeader(long length, IArmorVerifier? armor)
+    private void ReadApplicationHeader(long length)
     {
         if (_stream is null)
         {
             if (length > _remaining.Length)
                 throw new InvalidDataException("Truncated VCDIFF application header.");
-            armor?.ReadHeader(_remaining[..(int)length]);
+            _armor?.ReadHeader(_remaining[..(int)length]);
             _remaining = _remaining[(int)length..];
             return;
         }
@@ -116,7 +120,7 @@ internal ref struct WindowReader
             int count = _stream.Read(scratch[..(int)Math.Min(length, scratch.Length)]);
             if (count == 0)
                 throw new InvalidDataException("Truncated VCDIFF application header.");
-            armor?.ReadHeader(scratch[..count]);
+            _armor?.ReadHeader(scratch[..count]);
             length -= count;
         }
     }
@@ -136,6 +140,8 @@ internal ref struct WindowReader
         long segmentOffset = 0;
         if (dictionaryFlags != WindowFlags.None)
         {
+            if (dictionaryFlags == WindowFlags.Source)
+                _armor?.ValidateHeader(usesSource: true);
             segmentLength = ReadInteger();
             segmentOffset = ReadInteger();
             long available = usePriorTarget ? previousTargetLength : sourceLength;
