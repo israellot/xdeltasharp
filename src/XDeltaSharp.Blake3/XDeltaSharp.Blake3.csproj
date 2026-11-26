@@ -5,7 +5,10 @@
     <RepositoryUrl>https://github.com/israellot/xdeltasharp</RepositoryUrl>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Description>Optional BLAKE3 armor verification for xdelta3 patches decoded by XDeltaSharp.</Description>
+    <Title>XDeltaSharp BLAKE3 armor verification</Title>
+    <Description>Verify whole-file source and target digests in xdelta3 BLAKE3 armor. Adds opt-in verification to the XDeltaSharp core and LZMA decoders on .NET 8.</Description>
+    <PackageTags>vcdiff;xdelta;xdelta3;blake3;integrity;binary-patch</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
@@ -13,6 +16,6 @@
     <ProjectReference Include="../XDeltaSharp/XDeltaSharp.csproj" />
     <PackageReference Include="Blake3" Version="3.0.2" />
     <None Include="../../LICENSE" Pack="true" PackagePath="/" />
-    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Update="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

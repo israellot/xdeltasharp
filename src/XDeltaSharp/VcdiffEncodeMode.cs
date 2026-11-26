@@ -1,14 +1,15 @@
 namespace XDeltaSharp;
 
 /// <summary>Controls how the encoder searches for matches.</summary>
+/// <remarks>All modes write the same patch format. The decoder obtains the instructions it needs from the patch.</remarks>
 public enum VcdiffEncodeMode
 {
-    /// <summary>Use the level-3 matcher.</summary>
+    /// <summary>Use level 3 to search the source dictionary and earlier bytes in the current target window.</summary>
     Default = 0,
 
-    /// <summary>Search up to 256 source collision links and use selective one-byte lookahead for related inputs.</summary>
+    /// <summary>Use a bounded source-only match search. Useful for quickly patching small changes to a related file.</summary>
     Fast = 1,
 
-    /// <summary>Search full source and target chains by estimated encoding savings.</summary>
+    /// <summary>Search full source and target candidate chains, ranking matches by estimated patch size savings.</summary>
     Exhaustive = 2
 }
