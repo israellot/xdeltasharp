@@ -6,6 +6,9 @@ XDeltaSharp's managed level presets and overlap-resolution logic adapt technique
 from xdelta3-cfgs.h, xdelta3-main.h and xdelta3.c. The C# implementation uses
 XDeltaSharp's own source index, instruction storage and VCDIFF writer.
 
+The upstream regression tests in tests/XDeltaSharp.Tests adapt cases and
+known-answer vectors from xdelta3/testing/regtest.cc and xdelta3/xdelta3-test.h.
+
 Apache License
 Version 2.0, January 2004
 http://www.apache.org/licenses/
