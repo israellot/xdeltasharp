@@ -26,7 +26,7 @@ Encoding defaults to level 3. Pass `compressionLevel: 0` through `9` to adjust t
 
 ## Using patches with xdelta3
 
-The core encoder writes RFC 3284 version 0 patches using the default code table and uncompressed sections. The two commands below show how to exchange patches in either direction.
+The core encoder writes RFC 3284 version 0 patches using the default code table and uncompressed sections. When creating a patch with the xdelta3 CLI, use `-S none` to disable secondary compression.
 
 ```sh
 # Apply a patch produced by XDeltaSharp.
