@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from xml.etree import ElementTree
 from xml.sax.saxutils import quoteattr
 from zipfile import ZipFile
 
@@ -29,7 +30,10 @@ def check_packages(feed, version):
 
     for name, assembly in ASSEMBLIES.items():
         with ZipFile(feed / f"{name}.{version}.nupkg") as package:
-            files = {"README.md", "LICENSE", f"lib/net8.0/{assembly}.dll", f"lib/net8.0/{assembly}.xml"}
+            manifest = ElementTree.fromstring(package.read(f"{name}.nuspec"))
+            if manifest.findtext("{*}metadata/{*}icon") != "icon.png":
+                raise ValueError(f"{name} does not declare icon.png as its package icon")
+            files = {"README.md", "LICENSE", "icon.png", f"lib/net8.0/{assembly}.dll", f"lib/net8.0/{assembly}.xml"}
             if name == "xdelta":
                 files.add("THIRD-PARTY-NOTICES.txt")
             for member in files:
