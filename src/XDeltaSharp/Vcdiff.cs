@@ -127,12 +127,18 @@ public static class Vcdiff
     public static byte[] Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, int maxOutputBytes, int maxWindowBytes)
         => Decode(source, patch, maxOutputBytes, maxWindowBytes, null);
 
+    /// <summary>Reconstructs the target and verifies any xdelta3 armor digests.</summary>
+    public static byte[] Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch,
+        VcdiffArmor armor, int maxOutputBytes = int.MaxValue, int maxWindowBytes = MaxTargetWindowBytes)
+        => Decode(source, patch, maxOutputBytes, maxWindowBytes, null, armor.CreateVerifier());
+
     internal static byte[] Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, int maxOutputBytes,
-        int maxWindowBytes, DecodeSecondarySection? secondary)
+        int maxWindowBytes, DecodeSecondarySection? secondary, IArmorVerifier? armor = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxOutputBytes);
         ValidateWindowLimit(maxWindowBytes);
-        var reader = new WindowReader(patch, maxWindowBytes, secondary != null);
+        var reader = new WindowReader(patch, maxWindowBytes, secondary != null, armor);
+        armor?.VerifySource(source);
         var sizing = reader;
         int total = 0;
         int limit = Math.Min(maxOutputBytes, Array.MaxLength);
@@ -141,6 +147,7 @@ public static class Vcdiff
 
         var result = new byte[total];
         DecodeWindows(reader, source, result, secondary);
+        armor?.VerifyTarget(result);
         return result;
     }
 
@@ -156,8 +163,13 @@ public static class Vcdiff
     public static int Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination, int maxWindowBytes)
         => Decode(source, patch, destination, maxWindowBytes, null);
 
+    /// <summary>Reconstructs the target into the destination and verifies any xdelta3 BLAKE3 armor digests.</summary>
+    public static int Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
+        VcdiffArmor armor, int maxWindowBytes = MaxTargetWindowBytes)
+        => Decode(source, patch, destination, maxWindowBytes, null, armor.CreateVerifier());
+
     internal static int Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
-        int maxWindowBytes, DecodeSecondarySection? secondary)
+        int maxWindowBytes, DecodeSecondarySection? secondary, IArmorVerifier? armor = null)
     {
         ValidateWindowLimit(maxWindowBytes);
         if (source.Overlaps(destination))
@@ -165,7 +177,11 @@ public static class Vcdiff
         if (patch.Overlaps(destination))
             patch = patch.ToArray();
 
-        return DecodeWindows(new WindowReader(patch, maxWindowBytes, secondary != null), source, destination, secondary);
+        var reader = new WindowReader(patch, maxWindowBytes, secondary != null, armor);
+        armor?.VerifySource(source);
+        int written = DecodeWindows(reader, source, destination, secondary);
+        armor?.VerifyTarget(destination[..written]);
+        return written;
     }
 
     private static int DecodeWindows(WindowReader reader, ReadOnlySpan<byte> source, Span<byte> destination,
@@ -195,8 +211,13 @@ public static class Vcdiff
         int maxWindowBytes = MaxTargetWindowBytes)
         => Decode(source, patch, destination, maxOutputBytes, maxWindowBytes, null);
 
+    /// <summary>Decodes sequentially and verifies any xdelta3 BLAKE3 armor digests.</summary>
+    public static long Decode(Stream source, Stream patch, Stream destination,
+        VcdiffArmor armor, long maxOutputBytes = long.MaxValue, int maxWindowBytes = MaxTargetWindowBytes)
+        => Decode(source, patch, destination, maxOutputBytes, maxWindowBytes, null, armor.CreateVerifier());
+
     internal static long Decode(Stream source, Stream patch, Stream destination, long maxOutputBytes,
-        int maxWindowBytes, DecodeSecondarySection? secondary)
+        int maxWindowBytes, DecodeSecondarySection? secondary, IArmorVerifier? armor = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(patch);
@@ -213,12 +234,14 @@ public static class Vcdiff
         long sourceLength = source.CanSeek && source.CanRead ? Math.Max(0, source.Length - sourceStart) : -1;
         long outputStart = destination.CanSeek ? destination.Position : 0;
         long limit = Math.Min(maxOutputBytes, long.MaxValue - outputStart);
-        var reader = new WindowReader(patch, maxWindowBytes, secondary != null);
+        var reader = new WindowReader(patch, maxWindowBytes, secondary != null, armor);
         var cache = new AddressCache();
         byte[] buffer = [];
         long written = 0;
         try
         {
+            armor?.VerifySource(source);
+            using var targetHash = armor?.StartTargetHash();
             while (reader.TryReadWindow(sourceLength, written, limit - written, out var window))
             {
                 if (buffer.Length < window.TargetLength)
@@ -239,9 +262,12 @@ public static class Vcdiff
                     if (window.UsePriorTarget)
                         destination.Position = outputStart + written;
                 }
+                targetHash?.TransformBlock(buffer, 0, target.Length, null, 0);
                 destination.Write(target);
                 written += target.Length;
             }
+            if (targetHash != null)
+                armor!.FinishTargetHash(targetHash);
         }
         finally
         {

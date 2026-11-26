@@ -25,7 +25,7 @@ The stream overload reads the patch sequentially and uses 64-bit file offsets an
 
 The decoder handles ADD, RUN, all nine COPY address modes, paired instructions, and overlapping copies inside the current window. Each window can select a dictionary from the source file or previously reconstructed target output. Pass an empty source for a patch that uses only target data.
 
-All decode overloads accept xdelta3 patches created with `-S none`. They skip the length-prefixed application header as opaque metadata, including filenames and BLAKE3 armor, and verify each Adler-32 checksum against the reconstructed target window. The stream overload verifies the window before writing it.
+All decode overloads accept xdelta3 patches created with `-S none` and verify each Adler-32 checksum against the reconstructed target window. The stream overload verifies the window before writing it. By default, the decoder skips application-header metadata.
 
 Checksum mismatches, malformed patches, and output above `maxOutputBytes` raise `InvalidDataException`. An undersized destination raises `ArgumentException`. Custom code tables, unsupported secondary compressors, and open-vcdiff extension versions raise `NotSupportedException`.
 
@@ -42,6 +42,23 @@ long totalWritten = LzmaVcdiff.Decode(sourceStream, patchStream, outputStream);
 ```
 
 The optional package references SharpCompress for managed LZMA2 decoding. It keeps separate dictionaries for data, instructions, and COPY addresses across windows. Each LZMA dictionary and each expanded section is limited to 64 MiB. [SharpCompress on NuGet](https://www.nuget.org/packages/SharpCompress)
+
+### Verifying xdelta3 BLAKE3 armor
+
+Reference the optional `xdelta.Blake3` NuGet package and pass `Blake3Armor.Verify` to the decoder. NuGet brings in the managed BLAKE3 implementation transitively. The same option works with `Vcdiff` and `LzmaVcdiff`.
+
+```csharp
+using XDeltaSharp.Blake3;
+using XDeltaSharp;
+
+byte[] restored = Vcdiff.Decode(source, patch, armor: Blake3Armor.Verify);
+int written = Vcdiff.Decode(source, patch, destination.AsSpan(), armor: Blake3Armor.Verify);
+long totalWritten = Vcdiff.Decode(sourceStream, patchStream, outputStream, armor: Blake3Armor.Verify);
+```
+
+Verification checks each recognized digest in the xdelta3 application header. Patches without armor still decode. A source digest mismatch raises `InvalidDataException` before any output is written. Source verification requires a readable, seekable stream and covers bytes from its initial position to EOF. The decoder restores that position on success or failure.
+
+The target digest covers the entire reconstructed target. A mismatch raises `InvalidDataException` at the end of decoding, when a caller-provided span or stream can already contain the output. Stream decoding hashes windows incrementally and supports write-only destinations under the usual dictionary rules. [xdelta3 armor format](https://github.com/jmacd/xdelta/blob/v3.2.2/site/docs/armor.md)
 
 ## Structure
 

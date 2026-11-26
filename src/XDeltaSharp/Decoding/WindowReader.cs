@@ -10,20 +10,20 @@ internal ref struct WindowReader
     private long _headerBytes;
     private bool _hasSecondary;
 
-    internal WindowReader(ReadOnlySpan<byte> patch, int windowLimit, bool allowLzma = false)
+    internal WindowReader(ReadOnlySpan<byte> patch, int windowLimit, bool allowLzma = false, IArmorVerifier? armor = null)
     {
         _remaining = patch;
         _sectionBuffer = [];
         _windowLimit = windowLimit;
-        ReadFileHeader(allowLzma);
+        ReadFileHeader(allowLzma, armor);
     }
 
-    internal WindowReader(Stream patch, int windowLimit, bool allowLzma = false)
+    internal WindowReader(Stream patch, int windowLimit, bool allowLzma = false, IArmorVerifier? armor = null)
     {
         _stream = patch;
         _sectionBuffer = [];
         _windowLimit = windowLimit;
-        ReadFileHeader(allowLzma);
+        ReadFileHeader(allowLzma, armor);
     }
 
     private int NextByte()
@@ -68,7 +68,7 @@ internal ref struct WindowReader
         return (int)value;
     }
 
-    private void ReadFileHeader(bool allowLzma)
+    private void ReadFileHeader(bool allowLzma, IArmorVerifier? armor)
     {
         if (ReadByte() != 0xD6 || ReadByte() != 0xC3 || ReadByte() != 0xC4)
             throw new InvalidDataException("Invalid VCDIFF signature.");
@@ -90,15 +90,16 @@ internal ref struct WindowReader
         if ((flags & 2) != 0)
             throw new NotSupportedException("VCDIFF custom code tables are unsupported.");
         if ((flags & 4) != 0)
-            SkipApplicationHeader(ReadInteger());
+            ReadApplicationHeader(ReadInteger(), armor);
     }
 
-    private void SkipApplicationHeader(long length)
+    private void ReadApplicationHeader(long length, IArmorVerifier? armor)
     {
         if (_stream is null)
         {
             if (length > _remaining.Length)
                 throw new InvalidDataException("Truncated VCDIFF application header.");
+            armor?.ReadHeader(_remaining[..(int)length]);
             _remaining = _remaining[(int)length..];
             return;
         }
@@ -109,6 +110,7 @@ internal ref struct WindowReader
             int count = _stream.Read(scratch[..(int)Math.Min(length, scratch.Length)]);
             if (count == 0)
                 throw new InvalidDataException("Truncated VCDIFF application header.");
+            armor?.ReadHeader(scratch[..count]);
             length -= count;
         }
     }

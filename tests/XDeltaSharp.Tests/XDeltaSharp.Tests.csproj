@@ -13,5 +13,6 @@
     <None Update="Fixtures/*.txt;Fixtures/*.vcdiff" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../../src/XDeltaSharp/XDeltaSharp.csproj" />
     <ProjectReference Include="../../src/XDeltaSharp.Lzma/XDeltaSharp.Lzma.csproj" />
+    <ProjectReference Include="../../src/XDeltaSharp.Blake3/XDeltaSharp.Blake3.csproj" />
   </ItemGroup>
 </Project>

@@ -1,3 +1,4 @@
+using XDeltaSharp.Blake3;
 using XDeltaSharp.Lzma;
 using Xunit;
 using static XDeltaSharp.Tests.WindowVectors;
@@ -9,8 +10,10 @@ public class LzmaDecoderTests
     private static byte[] Fixture(string name) =>
         File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
 
-    [Fact]
-    public void DecodesDefaultXdelta3AcrossMixedSectionWindows()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DecodesDefaultXdelta3AcrossMixedSectionWindows(bool verifyArmor)
     {
         byte[] source = Fixture("source.txt");
         byte[] sample = Fixture("target.txt");
@@ -32,13 +35,21 @@ public class LzmaDecoderTests
         head.CopyTo(expected, 2 * windowSize);
         expected[^1] = (byte)'!';
 
-        byte[] result = LzmaVcdiff.Decode(source, patch, maxOutputBytes: expected.Length);
+        byte[] result = verifyArmor
+            ? LzmaVcdiff.Decode(source, patch, maxOutputBytes: expected.Length, armor: Blake3Armor.Verify)
+            : LzmaVcdiff.Decode(source, patch, maxOutputBytes: expected.Length);
         Assert.True(expected.AsSpan().SequenceEqual(result));
         Array.Clear(result);
-        Assert.Equal(expected.Length, LzmaVcdiff.Decode(source, patch, result.AsSpan()));
+        Assert.Equal(expected.Length, verifyArmor
+            ? LzmaVcdiff.Decode(source, patch, result.AsSpan(), armor: Blake3Armor.Verify)
+            : LzmaVcdiff.Decode(source, patch, result.AsSpan()));
         Assert.True(expected.AsSpan().SequenceEqual(result));
         using var output = new MemoryStream(expected.Length);
-        Assert.Equal(expected.LongLength, LzmaVcdiff.Decode(new MemoryStream(source), new MemoryStream(patch), output));
+        using var sourceStream = new MemoryStream(source);
+        using var patchStream = new MemoryStream(patch);
+        Assert.Equal(expected.LongLength, verifyArmor
+            ? LzmaVcdiff.Decode(sourceStream, patchStream, output, armor: Blake3Armor.Verify)
+            : LzmaVcdiff.Decode(sourceStream, patchStream, output));
         Assert.True(expected.AsSpan().SequenceEqual(output.GetBuffer().AsSpan(0, (int)output.Length)));
     }
 
