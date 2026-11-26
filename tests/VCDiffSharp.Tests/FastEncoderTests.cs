@@ -166,6 +166,40 @@ public class FastEncoderTests
     }
 
     [Fact]
+    public void PackedLinksSummarizeExactlyTheirOwnRemainingByteClasses()
+    {
+        using var index = new MatchIndex(65536, 1, []);
+        index.PrependWithMask(0, 65535, 0xF9);
+        index.PrependWithMask(0, 3, 0x09); // Same class as 0xF9.
+        index.PrependWithMask(0, 0, 0xFF); // Class seven occupies the sign bit.
+
+        Assert.Equal(0x8200_0001u, unchecked((uint)index.Entry(0)));
+        Assert.Equal(0x0200_0004, index.Entry(1));
+        Assert.Equal(0x0201_0000, index.Entry(1 + 3));
+        Assert.Equal(0, index.Entry(1 + 65535));
+    }
+
+    [Theory]
+    [InlineData(256, true)]
+    [InlineData(257, false)]
+    public void PackedFastTablePreservesHopLimitAndFirstTie(int winningHop, bool reachable)
+    {
+        byte[] source = new byte[524288];
+        byte[] target = Bytes(320);
+        target[0] = 0xFF;
+        for (int i = 0; i < winningHop; i++)
+            target.AsSpan(0, 8).CopyTo(source.AsSpan(i * 8));
+        target.CopyTo(source, winningHop * 8);
+
+        foreach (var memory in Enum.GetValues<MemoryMode>())
+        {
+            using var finder = new SourceMatchFinder(source, target.Length, memory, []);
+            CopyMatch expected = reachable ? new(winningHop * 8, 0, target.Length) : new(0, 0, 8);
+            Assert.Equal(expected, finder.FindMatch(target, 0, 0));
+        }
+    }
+
+    [Fact]
     public void UnequalSeedsInTheSameBucketDoNotHideALaterMatch()
     {
         byte[] source = Bytes(128);

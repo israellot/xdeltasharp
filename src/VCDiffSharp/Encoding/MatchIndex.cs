@@ -6,6 +6,9 @@ namespace VCDiffSharp.Encoding;
 /// <summary>One-based bucket heads and collision links, packed to the width of the largest position.</summary>
 internal readonly ref struct MatchIndex
 {
+    internal const int PackedIndexMask = 0x00FF_FFFF;
+    internal static int FirstByteBit(byte value) => 1 << (24 + (value & 7));
+
     private readonly Span<byte> _small;
     private readonly ushort[]? _medium;
     private readonly int[]? _large;
@@ -59,6 +62,16 @@ internal readonly ref struct MatchIndex
     }
 
     internal int Entry(int slot) => _large != null ? _large[slot] : _medium != null ? _medium[slot] : _small[slot];
+
+    // The saved link retains the old tail's mask. The new head also contains this landmark's class.
+    internal void PrependWithMask(int bucket, int index, byte firstByte)
+    {
+        System.Diagnostics.Debug.Assert(_large != null && (uint)index < PackedIndexMask);
+        int head = _large![bucket];
+        _large[BucketCount + index] = head;
+        int mask = (head & ~PackedIndexMask) | FirstByteBit(firstByte);
+        _large[bucket] = mask | (index + 1);
+    }
 
     // Keep the oldest occurrence first, followed by the newest and progressively older
     // entries. On interrupted periodic data the oldest occurrence can span the whole tail.

@@ -10,6 +10,7 @@ internal readonly ref struct SourceMatchFinder
 
     private readonly ReadOnlySpan<byte> _source;
     private readonly MatchIndex _index;
+    private readonly int _indexMask;
     private readonly bool _direct;
 
     internal int SourceSegmentLength => _source.Length;
@@ -39,6 +40,18 @@ internal readonly ref struct SourceMatchFinder
 
         int blocks = source.Length / 8;
         _index = new MatchIndex(blocks, MatchIndex.Buckets(blocks, memoryMode), smallTable);
+        // The 64 MiB source segment cap leaves room for all one-based landmark indices in 24 bits.
+        _indexMask = mode == VcdiffEncodeMode.Fast && blocks is > ushort.MaxValue and <= MatchIndex.PackedIndexMask
+            ? MatchIndex.PackedIndexMask : -1;
+        if (_indexMask == MatchIndex.PackedIndexMask)
+        {
+            for (int i = blocks - 1; i >= 0; i--)
+            {
+                var seed = source[(i * 8)..];
+                _index.PrependWithMask(Bucket(seed, BucketCount - 1), i, seed[0]);
+            }
+            return;
+        }
         for (int i = blocks - 1; i >= 0; i--)
             _index.Prepend(Bucket(source[(i * 8)..], BucketCount - 1), i);
     }
@@ -59,10 +72,12 @@ internal readonly ref struct SourceMatchFinder
         if (tail.Length < 8) return default;
         int bucket = Bucket(tail, BucketCount - 1);
         int block = _index.Entry(bucket);
+        // -1 gives the ordinary nonzero-link test for an unpacked table.
+        int wanted = _indexMask == MatchIndex.PackedIndexMask ? MatchIndex.FirstByteBit(tail[0]) : -1;
         CopyMatch best = default;
-        for (int hops = 0; block != 0; hops++)
+        for (int hops = 0; (block & wanted) != 0; hops++)
         {
-            int index = block - 1;
+            int index = (block & _indexMask) - 1;
             int position = index * 8;
             if (_source[position] == tail[0] && CanBeat(window, probe, pendingStart, position, best.Length))
             {
@@ -101,7 +116,7 @@ internal readonly ref struct SourceMatchFinder
         }
 
         if (tail.Length < 8) return;
-        int block = _index.Entry(Bucket(tail, BucketCount - 1));
+        int block = _index.Entry(Bucket(tail, BucketCount - 1)) & _indexMask;
         while (block != 0)
         {
             int index = block - 1;
@@ -111,7 +126,7 @@ internal readonly ref struct SourceMatchFinder
                 Consider(window, probe, pendingStart, position, in writer, ref best);
                 if (best.Savings >= upperBound) break;
             }
-            block = _index.Entry(BucketCount + index);
+            block = _index.Entry(BucketCount + index) & _indexMask;
         }
     }
 
@@ -161,7 +176,7 @@ internal readonly ref struct SourceMatchFinder
             if ((uint)aligned <= (uint)(_source.Length - 12) &&
                 sample[..12].SequenceEqual(_source.Slice(aligned, 12)))
                 return true;
-            int block = _index.Entry(Bucket(sample, BucketCount - 1));
+            int block = _index.Entry(Bucket(sample, BucketCount - 1)) & _indexMask;
             if (block == 0) continue;
             int position = (block - 1) * 8;
             int length = Math.Abs((long)position - aligned) <= 64 ? 12 : 48;

@@ -35,3 +35,9 @@ Apple M3 Max, .NET 8.0.25 Release, Fast, default memory policy and no afterburne
 VCDiffSharp and xdelta3 reconstructed all five targets. The two main prototypes produced byte-identical output to baseline on the five benchmark inputs and on 480 additional deterministic input/memory combinations spanning small, medium and large source indexes. Production Fast was left at the baseline algorithm. [Per-run measurements](Fast-candidate-routing-net8-arm64.csv)
 
 To reproduce, apply either prototype patch in isolation to the baseline checkout with `git apply --unidiff-zero`, then run `dotnet run -c Release --project benchmarks/VCDiffSharp.Benchmarks -- --fast-only source.bin target.bin`.
+
+## Production integration
+
+Fast now uses the packed first-byte mask on 32-bit source chains. A direct byte comparison against commit `0ed7208` matched all 510 reference patches. The comparison covered 480 generated input/memory combinations, 28 file-pair/memory/afterburner combinations (including Moby-Dick, SQLite, jq, ripgrep and GitHub CLI), and two maximum-source-segment cases. Both output overloads emitted the same bytes, and decoding reconstructed every target.
+
+A warmed, alternating before/after/after/before check on the same Arm64 machine measured 17.36–19.20 ms before and 13.60–14.85 ms after on the macOS SQLite feature update. The other two SQLite updates also ran faster in both optimized runs. On the small shared-header synthetic input, which uses 16-bit entries, the median rose from 0.839–0.841 ms to 0.863–0.867 ms.
