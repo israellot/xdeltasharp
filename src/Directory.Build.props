@@ -2,7 +2,8 @@
   <Import Project="../Directory.Build.props" />
   <PropertyGroup>
     <IsPackable>true</IsPackable>
-    <VersionPrefix>1.0.1</VersionPrefix>
+    <VersionPrefix>2.0.0</VersionPrefix>
+    <PackageReleaseNotes>Replace Vcdiff.EncodeOptimized(original, updated) with Vcdiff.Encode(original, updated, optimize: true) and recompile. For buffer writers, pass the writer before optimize: true. All three packages now include assemblies for .NET 8, 9, 10, and 11.</PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Authors>Israel Lot</Authors>
     <RepositoryUrl>https://github.com/israellot/xdeltasharp</RepositoryUrl>
