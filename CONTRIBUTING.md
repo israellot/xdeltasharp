@@ -2,7 +2,7 @@
 
 ## Set up a branch
 
-Start from the latest `master` and create a branch for your change. If you’re contributing from a fork, sync it with `israellot/xdeltasharp` first. Install the exact .NET SDK version in [global.json](global.json). Local builds, CI, and package releases use that SDK.
+Start from the latest `main` and create a branch for your change. If you’re contributing from a fork, sync it with `israellot/xdeltasharp` first. Install the exact .NET SDK version in [global.json](global.json). Local builds, CI, and package releases use that SDK.
 
 ```sh
 git switch -c fix-window-decoding
@@ -29,4 +29,4 @@ The regular suite also mutates four decoder seed patches. Each case flips a sing
 
 ## Open a pull request
 
-Push your branch and open a pull request against `israellot/xdeltasharp:master`. Describe the behavior you changed, why it matters to a caller, and how you tested it. Link the issue if there is one. GitHub Actions runs the suite on Linux and Windows. Check the results and push any follow-up fixes to the same branch.
+Push your branch and open a pull request against `israellot/xdeltasharp:main`. Describe the behavior you changed, why it matters to a caller, and how you tested it. Link the issue if there is one. GitHub Actions runs the suite on Linux and Windows. Check the results and push any follow-up fixes to the same branch.

@@ -3,7 +3,7 @@ name: Coverage
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -72,7 +72,7 @@ jobs:
 
   update-badges:
     needs: coverage
-    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -87,9 +87,9 @@ jobs:
           cp coverage-report/{lines,branches}.svg .github/badges/
           git add .github/badges/{lines,branches}.svg
           if git diff --cached --quiet; then exit 0; fi
-          git fetch origin master
-          if [ "$(git rev-parse origin/master)" != "$GITHUB_SHA" ]; then exit 0; fi
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'Refresh coverage badges'
-          git push origin HEAD:master
+          git push origin HEAD:main
