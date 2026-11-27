@@ -15,7 +15,6 @@
     <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="3.3.4" PrivateAssets="all" />
     <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="/" />
     <None Include="$(MSBuildThisFileDirectory)../LICENSE" Pack="true" PackagePath="/" />
   </ItemGroup>
