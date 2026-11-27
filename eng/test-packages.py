@@ -132,14 +132,14 @@ def main():
         with ZipFile(feed / f"xdelta.{version}.nupkg") as package:
             readme = package.read("README.md").decode()
         round_trip, apply_file = re.findall(r"^```csharp\n(.*?)^```$", readme, re.MULTILINE | re.DOTALL)
-        if run_example(work, round_trip, ["xdelta"], version).strip() != "True":
-            raise ValueError("The packaged round-trip example failed")
-
         shutil.copy(FIXTURES / "source.txt", work / "original.bin")
-        shutil.copy(FIXTURES / "xdelta3-lzma.vcdiff", work / "update.vcdiff")
+        shutil.copy(FIXTURES / "target.txt", work / "updated.bin")
+        round_trip += '\nif (!restored.AsSpan().SequenceEqual(updated)) throw new InvalidDataException("Round trip failed.");'
+        run_example(work, round_trip, ["xdelta"], version)
+
+        shutil.copy(FIXTURES / "xdelta3-checksum.vcdiff", work / "update.vcdiff")
         run_example(work, apply_file, ["xdelta.Lzma", "xdelta.Blake3"], version)
-        digest = hashlib.sha256((work / "restored.bin").read_bytes()).hexdigest()
-        if digest != MULTI_SHA256:
+        if (work / "restored.bin").read_bytes() != (FIXTURES / "target.txt").read_bytes():
             raise ValueError("The packaged file example reconstructed the wrong target")
         check_published_addons(feed / f"xdelta.{version}.nupkg")
 
