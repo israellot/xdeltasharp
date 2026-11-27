@@ -32,6 +32,10 @@ jobs:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/release-dotnet
         with:
           global-json-file: global.json
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
       - name: Check the release SDK and package version
         run: |
           test "$(dotnet --version)" = "$(jq -r .sdk.version global.json)"

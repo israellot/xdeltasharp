@@ -7,6 +7,27 @@ namespace XDeltaSharp.Tests;
 public class DecoderTests
 {
     [Theory]
+    [InlineData(15)]
+    [InlineData(16)]
+    [InlineData(17)]
+    [InlineData(5551)]
+    [InlineData(5552)]
+    [InlineData(5553)]
+    public void ChecksEveryByteAcrossAdlerBlockBoundaries(int length)
+    {
+        byte[] bytes = new byte[length];
+        new Random(37).NextBytes(bytes);
+        uint a = 1, b = 0;
+        foreach (byte value in bytes)
+        {
+            a = (a + value) % 65521;
+            b = (b + a) % 65521;
+        }
+        byte[] patch = Patch(Window(length, bytes, [1, .. Integer(length)], [], checksum: (b << 16) | a));
+        AssertDecodes([], patch, bytes);
+    }
+
+    [Theory]
     [InlineData("xdelta3")]
     [InlineData("xdelta3-checksum")]
     [InlineData("open-vcdiff")]
