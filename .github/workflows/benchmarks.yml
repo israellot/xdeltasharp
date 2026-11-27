@@ -6,6 +6,7 @@ on:
     branches: [codex/readme-benchmarks]
     paths:
       - .github/workflows/benchmarks.yml
+      - benchmarks/native/**
       - benchmarks/XDeltaSharp.Benchmarks/**
 
 permissions:
@@ -32,6 +33,12 @@ jobs:
           path: corpus
           sparse-checkout: src/Benchmarks/Data
           persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: jmacd/xdelta
+          ref: 5f8f5a553181c139d91b0289c009e5c276c5318c # v3.2.2
+          path: xdelta
+          persist-credentials: false
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         env:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/benchmark-dotnet
@@ -55,8 +62,10 @@ jobs:
           project=benchmarks/XDeltaSharp.Benchmarks
           data=corpus/src/Benchmarks/Data
           dotnet build "$project" -c Release
-          dotnet run --no-build -c Release --project "$project" -- --levels "$data/pg15.txt" "$data/pg2701.txt" | tee results/encode.csv
-          dotnet run --no-build -c Release --project "$project" -- --decode-file "$data/pg15.txt" "$data/pg2701.txt" | tee results/decode.csv
+          cmake -S benchmarks/native -B native-build -DCMAKE_BUILD_TYPE=Release -DXDELTA_SOURCE="$PWD/xdelta"
+          cmake --build native-build --target xdelta_benchmark
+          cp native-build/libxdelta_benchmark.* "$project/bin/Release/net8.0/"
+          dotnet run --no-build -c Release --project "$project" -- --compare-xdelta3 "$data/pg15.txt" "$data/pg2701.txt" | tee results/comparison.csv
         shell: bash
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
