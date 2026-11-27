@@ -3,80 +3,77 @@
 [![Line coverage](.github/badges/lines.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
 [![Branch coverage](.github/badges/branches.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
 
-XDeltaSharp creates and applies VCDIFF binary patches in .NET 8 and later. Use it to distribute an update when the recipient already has the original file. The patch can reuse byte ranges from the original, even when those bytes have moved. The core library is managed C# with no package dependencies.
+XDeltaSharp creates and applies VCDIFF binary patches in .NET 8 and later. If someone already has the original file, you can send them a patch to reconstruct the updated file. The core library is written in C# and has no package dependencies.
 
-For example, the default encoder produces a **21,287-byte patch** between two editions of *Moby-Dick*. With the original file already on disk, the download is **1.7% of the 1,253,974-byte updated file**. [Sample files](https://github.com/israellot/DeltaSharp/tree/main/src/Benchmarks/Data)
+## Create and apply a patch
 
-## Install and try it
+Install the core package in your .NET project.
 
 ```sh
 dotnet add package xdelta
 ```
 
+`Encode` takes the original and updated bytes and returns a patch. On the receiving end, `Decode` needs only the original bytes and that patch.
+
 ```csharp
 using XDeltaSharp;
 
-byte[] original = "color=blue\nwidth=1200\nheight=800\n"u8.ToArray();
-byte[] updated  = "color=blue\nwidth=1280\nheight=800\n"u8.ToArray();
+byte[] original = File.ReadAllBytes("original.bin");
+byte[] updated = File.ReadAllBytes("updated.bin");
 
 byte[] patch = Vcdiff.Encode(original, updated);
-byte[] restored = Vcdiff.Decode(original, patch);
-
-Console.WriteLine(restored.AsSpan().SequenceEqual(updated)); // True
+byte[] restored = Vcdiff.Decode(original, patch); // Same bytes as updated
 ```
 
-Encoding defaults to level 3. Pass `compressionLevel: 0` through `9` to adjust the search effort, or use `EncodeOptimized` to spend extra encoding time looking for a smaller patch. The decoder works with every level.
-
-The encoder processes the target in 8 MiB windows. For a source larger than 64 MiB, each window searches a single 64 MiB source segment selected by its target offset. The last segment ends at the end of the source. Bytes moved outside the selected segment can increase patch size.
-
-Indexing a full 64 MiB source segment uses 32 MiB at levels 0–1, 64 MiB at levels 2–5, and 256 MiB at levels 6–9. `MemoryMode.LessMemory` halves the source index at each level. These sizes exclude inputs, output, and target-matching buffers. The shared array pool can retain the index after encoding.
-
-## Using patches with xdelta3
-
-The core encoder writes RFC 3284 version 0 patches using the default code table and uncompressed sections. When creating a patch with the xdelta3 CLI, use `-S none` to disable secondary compression.
-
-```sh
-# Apply a patch produced by XDeltaSharp.
-xdelta3 -d -s original.bin update.vcdiff restored.bin
-
-# Create a patch that Vcdiff.Decode can apply.
-xdelta3 -e -S none -s original.bin updated.bin update.vcdiff
-```
-
-| NuGet package | When to use it |
-| --- | --- |
-| [xdelta](https://www.nuget.org/packages/xdelta) | Create patches and apply patches with uncompressed sections and the default code table, including standard-format open-vcdiff output. |
-| [xdelta.Lzma](https://www.nuget.org/packages/xdelta.Lzma) | Apply xdelta3 patches with LZMA-compressed sections. The same decoder also accepts uncompressed sections. |
-| [xdelta.Blake3](https://www.nuget.org/packages/xdelta.Blake3) | Verify whole-file source and target digests when an xdelta3 patch contains BLAKE3 armor. Works with either decoder. |
-
-Each add-on includes the core package as a dependency. Both decoders verify Adler-32 window checksums when present. Custom code tables and open-vcdiff extension formats are unsupported. [VCDIFF specification](https://www.rfc-editor.org/rfc/rfc3284.html)
+Use `File.WriteAllBytes("update.vcdiff", patch)` to save the patch for distribution.
 
 ## Apply a patch to a file
 
-Install both add-ons to read an LZMA-compressed patch and require its embedded digests. The example uses the secondary limits and mandatory armor options added after 1.0.0. It caps each window’s encoded payload and each expanded section at 8 MiB, each LZMA dictionary at 16 MiB, and the reconstructed file at 4 GiB.
+To reconstruct a file on disk, pass three streams to `Decode`. This lets you read the patch and write the result one window at a time.
 
 ```csharp
-using XDeltaSharp.Blake3;
-using XDeltaSharp.Lzma;
+using XDeltaSharp;
 
-using var source = File.OpenRead("original.bin");
+using var original = File.OpenRead("original.bin");
 using var patch = File.OpenRead("update.vcdiff");
-using var output = File.Create("restored.bin");
+using var restored = File.Create("restored.bin");
 
-long written = LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, output,
-    maxEncodedWindowBytes: 8 * 1024 * 1024,
-    maxExpandedSectionBytes: 8 * 1024 * 1024,
-    maxDictionaryBytes: 16 * 1024 * 1024,
-    maxOutputBytes: 4L * 1024 * 1024 * 1024,
-    armor: Blake3Armor.Require);
+Vcdiff.Decode(original, patch, restored);
 ```
 
-A source digest mismatch fails before writing. A target digest mismatch is detected after reconstruction, so use the output only after the call succeeds. `Blake3Armor.Verify` accepts patches without armor. Use `Blake3Armor.Require` to require a target digest and a source digest whenever the patch declares a source. The digests travel with the patch and detect corruption. Publisher authentication requires a separately trusted signature or digest.
+Supply the same original file used to create the patch. Choose a separate path for the restored file because `File.Create` overwrites an existing file.
 
-## Buffers, streams, and limits
+## Use patches with xdelta3
 
-- **Caller-owned buffers.** Pass a `Span<byte>` to `Decode` to fill an existing buffer. The return value is the number of bytes written. To append an encoded patch to a buffer writer, pass an `IBufferWriter<byte>` to `Encode`.
-- **Streams.** The patch is read sequentially. Source copies require a readable, seekable source. A patch that copies from earlier output also needs a readable, seekable destination. Decode leaves the streams open.
-- **Limits.** `maxOutputBytes` caps total decoded output. `maxWindowBytes` lowers the default 64 MiB decoded-window limit. For stream input, `DecodeWithLimits` also checks the combined encoded section sizes before buffering each window.
+Apply a patch created by XDeltaSharp with the xdelta3 command-line tool.
+
+```sh
+xdelta3 -d -s original.bin update.vcdiff restored.bin
+```
+
+To go the other direction, use `-S none` when creating the patch with xdelta3. This disables secondary compression so the core package can apply it.
+
+```sh
+xdelta3 -e -S none -s original.bin updated.bin update.vcdiff
+```
+
+The core package supports RFC 3284 version 0 patches with the default code table and uncompressed sections, including standard open-vcdiff output. Both the core and LZMA decoders verify Adler-32 window checksums when present. [VCDIFF specification](https://www.rfc-editor.org/rfc/rfc3284.html)
+
+### Optional packages
+
+- **LZMA compression.** If you receive an LZMA-compressed xdelta3 patch, install `xdelta.Lzma` and use `LzmaVcdiff.Decode(original, patch, restored)`. [NuGet package](https://www.nuget.org/packages/xdelta.Lzma) · [Usage and memory limits](https://github.com/israellot/xdeltasharp/blob/master/src/XDeltaSharp.Lzma/README.md)
+- **BLAKE3 verification.** If the patch includes whole-file digests, `xdelta.Blake3` can verify the original and restored files with either decoder. Use the restored file only after decoding succeeds, since the target digest is checked at the end. [NuGet package](https://www.nuget.org/packages/xdelta.Blake3) · [Verification options](https://github.com/israellot/xdeltasharp/blob/master/src/XDeltaSharp.Blake3/README.md)
+
+## Patch size and encoding options
+
+For two editions of *Moby-Dick*, the default encoder produced a **21,287-byte patch**, or **1.7%** of the 1,253,974-byte updated file. Patch size depends on how much data the encoder can reuse from the original. [Sample files](https://github.com/israellot/DeltaSharp/tree/main/src/Benchmarks/Data)
+
+`Vcdiff.Encode` defaults to compression level 3. Pass `compressionLevel: 0` through `9` to tune how much time the encoder spends searching for matches. Use `Vcdiff.EncodeOptimized` for an additional pass to reduce patch size, or `MemoryMode.LessMemory` to halve the memory used by the source index. The same decoder handles all levels. [Encoding levels, memory use, and benchmarks](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md#encoding-levels)
+
+## Buffers and decoding limits
+
+- To reuse an output buffer, pass a `Span<byte>` to `Decode`. It returns the number of bytes written. To encode into a buffer writer, pass an `IBufferWriter<byte>` to `Encode`.
+- For stream decoding, the patch is read sequentially. Copies from the original require a readable, seekable source. Copies from earlier output also require a readable, seekable destination. The caller owns all three streams.
+- To cap the total output, pass `maxOutputBytes` to `Decode`. Use `maxWindowBytes` to lower the default 64 MiB decoded-window limit. For stream input, `DecodeWithLimits` can also cap the encoded bytes buffered for each window.
 
 Released under the [MIT License](https://opensource.org/license/mit).
