@@ -29,7 +29,8 @@ public class VcdiffDecodeOptions
 
     /// <summary>The largest target window the decoder will accept, in bytes. The default is
     /// <see cref="Vcdiff.MaxTargetWindowBytes"/>.</summary>
-    /// <remarks>Stream decoding buffers one target window at a time, so this bounds its memory use.</remarks>
+    /// <remarks>Stream decoding buffers one decoded target window at a time, and this bounds that buffer. The
+    /// window's encoded sections are buffered separately, under <see cref="MaxEncodedWindowBytes"/>.</remarks>
     /// <exception cref="ArgumentOutOfRangeException">The value is negative or greater than
     /// <see cref="Vcdiff.MaxTargetWindowBytes"/>.</exception>
     public int MaxWindowBytes

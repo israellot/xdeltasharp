@@ -141,9 +141,10 @@ public static class Vcdiff
     /// <param name="destination">Receives the target at its current position. It must also be readable and
     /// seekable if a window copies from earlier output.</param>
     /// <returns>The number of bytes written to <paramref name="destination"/>.</returns>
-    /// <remarks>The three streams must be distinct and are left open. A seekable source is returned to its
-    /// starting position. A failed decode leaves the windows already written in
-    /// <paramref name="destination"/>.</remarks>
+    /// <remarks>The three streams must be distinct and are left open. The one exception is
+    /// <see cref="Stream.Null"/>, which can be both source and destination to discard the output of a patch
+    /// that has no source. A seekable source is returned to its starting position. A failed decode leaves the
+    /// windows already written in <paramref name="destination"/>.</remarks>
     /// <exception cref="ArgumentNullException">A stream is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">The patch cannot be read, the destination cannot be written, or two
     /// arguments are the same stream.</exception>
@@ -163,9 +164,11 @@ public static class Vcdiff
     /// seekable if a window copies from earlier output.</param>
     /// <param name="options">Size limits and digest verification.</param>
     /// <returns>The number of bytes written to <paramref name="destination"/>.</returns>
-    /// <remarks>The three streams must be distinct and are left open. A seekable source is returned to its
-    /// starting position. A failed decode leaves the windows already written in <paramref name="destination"/>.
-    /// A target digest is checked last, so a mismatch leaves the whole target there.</remarks>
+    /// <remarks>The three streams must be distinct and are left open. The one exception is
+    /// <see cref="Stream.Null"/>, which can be both source and destination to discard the output of a patch
+    /// that has no source. A seekable source is returned to its starting position. A failed decode leaves the
+    /// windows already written in <paramref name="destination"/>. A target digest is checked last, so a
+    /// mismatch leaves the whole target there.</remarks>
     /// <exception cref="ArgumentNullException">A stream or <paramref name="options"/> is
     /// <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">The patch cannot be read, the destination cannot be written, or two
