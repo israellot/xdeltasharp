@@ -43,7 +43,7 @@ The decoder reads the patch one window at a time. Copies from the original file 
 | Goal | Example |
 | --- | --- |
 | Search harder for matches (levels 0–9, default 3) | `Vcdiff.Encode(original, updated, compressionLevel: 9)` |
-| Try an extra pass for a smaller patch | `Vcdiff.EncodeOptimized(original, updated)` |
+| Try an extra pass for a smaller patch | `Vcdiff.Encode(original, updated, optimize: true)` |
 | Halve the source index size | `Vcdiff.Encode(original, updated, MemoryMode.LessMemory)` |
 | Limit decoded output to 64 MiB | `Vcdiff.Decode(original, patch, maxOutputBytes: 64 * 1024 * 1024)` |
 

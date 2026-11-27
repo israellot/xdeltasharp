@@ -35,25 +35,26 @@ public class CompressionLevelTests
             source.AsSpan(source.Length - offset - 16, 16).CopyTo(target.AsSpan(offset));
 
         byte[] expected = Vcdiff.Encode(source, target, 3, memory);
-        byte[] optimized = Vcdiff.EncodeOptimized(source, target, 3, memory);
+        byte[] optimized = Vcdiff.Encode(source, target, optimize: true, 3, memory);
+        Assert.Equal(expected, Vcdiff.Encode(source, target, optimize: false, memoryMode: memory));
         Assert.Equal(expected, Vcdiff.Encode(source, target, memory));
-        Assert.Equal(optimized, Vcdiff.EncodeOptimized(source, target, memoryMode: memory));
+        Assert.Equal(optimized, Vcdiff.Encode(source, target, optimize: true, memoryMode: memory));
         var sink = new ArrayBufferWriter<byte>();
         Vcdiff.Encode(source, target, sink, memory);
         Assert.True(sink.WrittenSpan.SequenceEqual(expected));
         sink.ResetWrittenCount();
-        Vcdiff.EncodeOptimized(source, target, sink, memoryMode: memory);
+        Vcdiff.Encode(source, target, sink, optimize: true, memoryMode: memory);
         Assert.True(sink.WrittenSpan.SequenceEqual(optimized));
 
         if (memory == MemoryMode.Default)
         {
             Assert.Equal(expected, Vcdiff.Encode(source, target));
-            Assert.Equal(optimized, Vcdiff.EncodeOptimized(source, target));
+            Assert.Equal(optimized, Vcdiff.Encode(source, target, optimize: true));
             sink.ResetWrittenCount();
             Vcdiff.Encode(source, target, sink);
             Assert.True(sink.WrittenSpan.SequenceEqual(expected));
             sink.ResetWrittenCount();
-            Vcdiff.EncodeOptimized(source, target, sink);
+            Vcdiff.Encode(source, target, sink, optimize: true);
             Assert.True(sink.WrittenSpan.SequenceEqual(optimized));
         }
     }
@@ -179,8 +180,8 @@ public class CompressionLevelTests
         sink.Write("prefix"u8);
         Assert.Throws<ArgumentOutOfRangeException>("compressionLevel", () => Vcdiff.Encode([], [], level));
         Assert.Throws<ArgumentOutOfRangeException>("compressionLevel", () => Vcdiff.Encode([], [], sink, level));
-        Assert.Throws<ArgumentOutOfRangeException>("compressionLevel", () => Vcdiff.EncodeOptimized([], [], level));
-        Assert.Throws<ArgumentOutOfRangeException>("compressionLevel", () => Vcdiff.EncodeOptimized([], [], sink, level));
+        Assert.Throws<ArgumentOutOfRangeException>("compressionLevel", () => Vcdiff.Encode([], [], optimize: true, level));
+        Assert.Throws<ArgumentOutOfRangeException>("compressionLevel", () => Vcdiff.Encode([], [], sink, optimize: true, level));
         Assert.Throws<ArgumentNullException>("destination", () => Vcdiff.Encode([], [], null!, level));
         Assert.True(sink.WrittenSpan.SequenceEqual("prefix"u8));
     }
@@ -192,10 +193,10 @@ public class CompressionLevelTests
         var sink = new ArrayBufferWriter<byte>();
         Assert.Throws<ArgumentOutOfRangeException>("memoryMode", () => Vcdiff.Encode([], [], invalid));
         Assert.Throws<ArgumentOutOfRangeException>("memoryMode", () => Vcdiff.Encode([], [], sink, 1, invalid));
-        Assert.Throws<ArgumentOutOfRangeException>("memoryMode", () => Vcdiff.EncodeOptimized([], [], 1, invalid));
-        Assert.Throws<ArgumentOutOfRangeException>("memoryMode", () => Vcdiff.EncodeOptimized([], [], sink, memoryMode: invalid));
+        Assert.Throws<ArgumentOutOfRangeException>("memoryMode", () => Vcdiff.Encode([], [], optimize: true, 1, invalid));
+        Assert.Throws<ArgumentOutOfRangeException>("memoryMode", () => Vcdiff.Encode([], [], sink, optimize: true, memoryMode: invalid));
         Assert.Throws<ArgumentNullException>("destination", () => Vcdiff.Encode([], [], null!));
-        Assert.Throws<ArgumentNullException>("destination", () => Vcdiff.EncodeOptimized([], [], null!));
+        Assert.Throws<ArgumentNullException>("destination", () => Vcdiff.Encode([], [], null!, optimize: true));
         Assert.Equal(0, sink.WrittenCount);
     }
 }

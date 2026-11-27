@@ -24,7 +24,7 @@ public class Xdelta3InteropTests
         for (int level = 0; level <= 9; level++)
         {
             AssertXdelta3Decodes(source, Vcdiff.Encode(source, target, level), target, $"Encode level {level}");
-            AssertXdelta3Decodes(source, Vcdiff.EncodeOptimized(source, target, level), target, $"EncodeOptimized level {level}");
+            AssertXdelta3Decodes(source, Vcdiff.Encode(source, target, optimize: true, level), target, $"Encode optimize: true, level {level}");
         }
     }
 
