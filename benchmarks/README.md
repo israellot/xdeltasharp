@@ -75,6 +75,14 @@ Use `--short-search` to time an unrelated 256-byte target and an exact match at 
 
 Historical results for the retired Fast and Exhaustive matchers remain in `Results/`, including the [original Default profile](Results/MobyDick-Default-profile.md). The [afterburner comparison](Results/Window-afterburner-net8-arm64.md) records all three implementations at the time of that experiment. Its Default rows refer to level 3.
 
+### Reproduce the README comparison
+
+Run the [README benchmarks workflow](https://github.com/israellot/xdeltasharp/actions/workflows/benchmarks.yml) to repeat the comparison on GitHub-hosted macOS and Ubuntu runners. Use the CPU model in each artifact to identify its processor. It builds XDeltaSharp in .NET 8 Release and upstream xdelta3 3.2.2 in CMake Release, then runs both in one process on each host. The workflow pins the [native source](https://github.com/jmacd/xdelta/tree/5f8f5a553181c139d91b0289c009e5c276c5318c) and the [two Moby-Dick editions](https://github.com/israellot/DeltaSharp/tree/c66944b54f3cf58b4157c2b0ea366275dbea7d31/src/Benchmarks/Data). Each job saves its CPU model, OS and runtime inventory alongside the timings.
+
+Both encoders use the same numbered level, uncompressed sections, no checksum or application header, and reusable output buffers. At level 3, both decoders apply each encoder’s patch to the same source. The README quotes the native patch for the decoder comparison. The CSV includes both patch origins and all ten encoder levels.
+
+Each measurement warms up for at least 600 ms and reports the median time per operation across seven batches. The harness loads the files before timing, checks every native patch byte-for-byte against the upstream CLI, and verifies that both libraries reconstruct the exact target from every patch. Timings include one managed-to-native call per xdelta3 operation. The workflow disables .NET tiered compilation. [Comparison harness](XDeltaSharp.Benchmarks/Xdelta3Comparison.cs) · [Native API settings](native/xdelta_benchmark.c) · [Full results](Results/MobyDick-xdelta3-net8.csv)
+
 ## Decoder benchmarks
 
 Run the array, span, and stream decoders on a seven-byte literal, the xdelta3 checksum fixture, and the three-window xdelta3 LZMA fixture. The two raw patches run through the core and optional LZMA decoders to measure per-call overhead. The compressed fixture runs with and without BLAKE3 verification.
