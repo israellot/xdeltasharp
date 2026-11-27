@@ -26,6 +26,7 @@ jobs:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/release-dotnet
         with:
           global-json-file: global.json
+          dotnet-version: 8.0.x # Runtime for net8.0 tests and package consumers
       - name: Check release SDK
         run: test "$(dotnet --version)" = "$(jq -r .sdk.version global.json)"
       - run: dotnet build XDeltaSharp.sln -c Release
@@ -68,6 +69,7 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json
+          dotnet-version: 8.0.x # Runtime for net8.0 tests and package consumers
       - run: dotnet test XDeltaSharp.sln -c Debug -- xUnit.ParallelizeTestCollections=false
 
   update-badges:
