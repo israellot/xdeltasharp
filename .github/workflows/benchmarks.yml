@@ -2,12 +2,6 @@ name: README benchmarks
 
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/readme-benchmarks]
-    paths:
-      - .github/workflows/benchmarks.yml
-      - benchmarks/native/**
-      - benchmarks/XDeltaSharp.Benchmarks/**
 
 permissions:
   contents: read

@@ -70,6 +70,21 @@ For two editions of *Moby-Dick*, the default encoder produced a **21,287-byte pa
 
 `Vcdiff.Encode` defaults to compression level 3. Pass `compressionLevel: 0` through `9` to tune how much time the encoder spends searching for matches. Use `Vcdiff.EncodeOptimized` for an additional pass to reduce patch size, or `MemoryMode.LessMemory` to halve the memory used by the source index. The same decoder handles all levels. [Encoding levels, memory use, and benchmarks](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md#encoding-levels)
 
+## Benchmarks against xdelta3
+
+How long does it take to create and apply the *Moby-Dick* update? At level 3, XDeltaSharp produced a **21,287-byte** patch and native xdelta3 3.2.2 produced **21,534 bytes**. For the decode comparison, both libraries applied the same 21,534-byte xdelta3 patch and reconstructed the 1,253,974-byte target.
+
+Median milliseconds per operation on GitHub-hosted runners, using .NET 8.0.34 and native Release builds. Inputs and output buffers were already in memory. Lower is faster.
+
+| Processor | OS | XDeltaSharp encode | xdelta3 encode | XDeltaSharp decode | xdelta3 decode |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Apple M1 (Arm64) | macOS 15.8.2 | 4.713 | 6.539 | 0.251 | 0.285 |
+| Intel Core i7-8700B (x64) | macOS 15.7.9 | 8.882 | 10.089 | 0.437 | 0.474 |
+| Intel Xeon 6975P-C (x64) | Ubuntu 24.04 | 2.873 | 3.414 | 0.233 | 0.206 |
+| AMD EPYC 7763 (x64) | Ubuntu 22.04 | 3.914 | 4.098 | 0.275 | 0.229 |
+
+XDeltaSharp encoded this update faster on all four hosts. Decode times favored XDeltaSharp on the M1 and Core i7, and xdelta3 on the Xeon and EPYC. [All ten levels and both patch origins (CSV)](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/Results/MobyDick-xdelta3-net8.csv) · [Method and reproduction steps](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md#reproduce-the-readme-comparison) · [Benchmark run](https://github.com/israellot/xdeltasharp/actions/runs/45991937854)
+
 ## Buffers and decoding limits
 
 - To reuse an output buffer, pass a `Span<byte>` to `Decode`. It returns the number of bytes written. To encode into a buffer writer, pass an `IBufferWriter<byte>` to `Encode`.
