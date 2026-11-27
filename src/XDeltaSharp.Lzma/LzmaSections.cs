@@ -10,17 +10,6 @@ internal sealed class LzmaSections(int maxExpandedSectionBytes, int maxDictionar
 {
     private SectionStream? _data, _instructions, _addresses;
 
-    internal static SecondaryDecoderFactory Default { get; } = WithLimits(Vcdiff.MaxTargetWindowBytes, Vcdiff.MaxTargetWindowBytes);
-
-    internal static SecondaryDecoderFactory WithLimits(int maxExpandedSectionBytes, int maxDictionaryBytes)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedSectionBytes);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(maxExpandedSectionBytes, Vcdiff.MaxTargetWindowBytes);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxDictionaryBytes);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(maxDictionaryBytes, Vcdiff.MaxTargetWindowBytes);
-        return new(static (section, dictionary) => new LzmaSections(section, dictionary), maxExpandedSectionBytes, maxDictionaryBytes);
-    }
-
     public ReadOnlySpan<byte> Decode(SectionKind kind, ReadOnlySpan<byte> encoded)
     {
         var prefix = new SectionReader(encoded);

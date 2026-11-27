@@ -34,9 +34,11 @@ internal ref struct LevelTargetMatcher(ReadOnlySpan<byte> window, MatcherProfile
         }
         var tail = _window[probe..];
         uint seed = BinaryPrimitives.ReadUInt32LittleEndian(tail);
-        int bucket = (int)(unchecked(seed * 2654435761u) >> (32 - BitOperations.Log2((uint)_index.BucketCount)))
+        // Knuth's multiplicative hash: 2^32 divided by the golden ratio, keeping the high bits.
+        const uint GoldenRatioMultiplier = 2654435761u;
+        int bucket = (int)(unchecked(seed * GoldenRatioMultiplier) >> (32 - BitOperations.Log2((uint)_index.BucketCount)))
             & (_index.BucketCount - 1);
-        int head = _index.Entry(bucket);
+        int head = _index[bucket];
         int entry = head;
         CopyMatch best = default;
         int budget = lazy ? profile.LazyCandidates : profile.TargetCandidates;
@@ -57,11 +59,11 @@ internal ref struct LevelTargetMatcher(ReadOnlySpan<byte> window, MatcherProfile
             // The bucket head remains usable after its ring slot has been reused.
             // Only follow links whose positions still belong to this ring generation.
             if (budget == 0 || probe - position > _ringMask) break;
-            entry = _index.Entry(_index.BucketCount + (position & _ringMask));
+            entry = _index[_index.BucketCount + (position & _ringMask)];
             if (entry == 0 || probe - (entry - 1) > _ringMask) break;
         }
-        if (_ringMask >= 0) _index.Set(_index.BucketCount + (probe & _ringMask), head);
-        _index.Set(bucket, probe + 1);
+        if (_ringMask >= 0) _index[_index.BucketCount + (probe & _ringMask)] = head;
+        _index[bucket] = probe + 1;
         return best;
     }
 

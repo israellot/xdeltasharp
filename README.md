@@ -6,9 +6,7 @@
 [![Line coverage](https://raw.githubusercontent.com/israellot/xdeltasharp/master/.github/badges/lines.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/israellot/xdeltasharp/blob/master/LICENSE)
 
-XDeltaSharp creates and applies **VCDIFF binary patches in managed C#**. For example, a game launcher can download a patch and reconstruct an updated asset bundle from the version already on disk. The core NuGet package has no dependencies and ships matching builds for .NET 8, 9, 10, and 11.
-
-For two editions of *Moby-Dick*, XDeltaSharp reduced a **1.25 MB update to a 21.3 kB patch** (1.7% of the updated file). On an Apple M1 it encoded that pair **2.43× as fast as native xdelta3** at compression level 3. [Benchmark results](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/Results/MobyDick-xdelta3-net11.csv)
+XDeltaSharp creates and applies VCDIFF binary patches in managed C#. For example, a game launcher can download a patch and reconstruct an updated asset bundle from the version already on disk. The NuGet package is named `xdelta` and its namespace is `XDeltaSharp`. It has no dependencies and ships builds for .NET 8, 9, 10, and 11.
 
 - Exchange patches with the xdelta3 CLI using the standard VCDIFF code table and uncompressed sections.
 - Apply a patch window by window from a stream, with limits on buffering and total output.
@@ -36,13 +34,13 @@ Console.WriteLine(updated.SequenceEqual(restored)); // True
 
 ## Performance against native xdelta3
 
-These are median times per operation on the *Moby-Dick* pair at level 3. XDeltaSharp produced a 21,287-byte patch and xdelta3 produced a 21,534-byte patch. To compare decoding on identical input, both decoders applied the xdelta3 patch.
+These are median times per operation on two editions of *Moby-Dick*, 1.25 MB each, at level 3. XDeltaSharp produced a 21,287-byte patch and xdelta3 produced a 21,534-byte patch. To compare decoding on identical input, both decoders applied the xdelta3 patch.
 
 | Host | XDeltaSharp encode | xdelta3 encode | Encode speedup | XDeltaSharp decode | xdelta3 decode |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Apple M1 · macOS 15 | 2.29 ms | 5.58 ms | **2.43×** | 0.21 ms | 0.22 ms |
-| Intel Xeon 6975P-C · Ubuntu 24.04 | 2.55 ms | 3.47 ms | **1.36×** | 0.20 ms | 0.22 ms |
-| AMD EPYC 9V74 · Ubuntu 22.04 | 2.33 ms | 3.31 ms | **1.42×** | 0.17 ms | 0.15 ms |
+| Apple M1 · macOS 15 | 2.29 ms | 5.58 ms | 2.43× | 0.21 ms | 0.22 ms |
+| Intel Xeon 6975P-C · Ubuntu 24.04 | 2.55 ms | 3.47 ms | 1.36× | 0.20 ms | 0.22 ms |
+| AMD EPYC 9V74 · Ubuntu 22.04 | 2.33 ms | 3.31 ms | 1.42× | 0.17 ms | 0.15 ms |
 
 The benchmark runs .NET 11 and native xdelta3 3.2.2 in the same process, with inputs in memory and reusable output buffers. It takes the median of seven warmed batches and verifies that both decoders reconstruct the updated file byte for byte. [Reproduce the comparison](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md#reproduce-the-readme-comparison) · [Full results for levels 0–9 (CSV)](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/Results/MobyDick-xdelta3-net11.csv)
 
@@ -66,17 +64,19 @@ A failed decode can leave a partially written file. When installing an update, d
 
 ### Set decoding limits
 
-When accepting downloaded patches, choose limits that fit the files you expect. In the file example, replace the `Vcdiff.Decode` call with the following to cap the encoded payload, the decoded window, and the entire update independently.
+A patch states its own sizes. When accepting downloaded patches, choose limits that fit the files you expect. In the file example, replace the `Vcdiff.Decode` call with the following to cap the encoded window, the decoded window, and the whole update independently.
 
 ```csharp
 const int MiB = 1024 * 1024;
-Vcdiff.DecodeWithLimits(original, patch, restored,
-    maxEncodedWindowBytes: 4 * MiB,
-    maxWindowBytes: 8 * MiB,
-    maxOutputBytes: 64 * MiB);
+Vcdiff.Decode(original, patch, restored, new VcdiffDecodeOptions
+{
+    MaxEncodedWindowBytes = 4 * MiB,
+    MaxWindowBytes = 8 * MiB,
+    MaxOutputBytes = 64 * MiB
+});
 ```
 
-By default, stream decoding allows up to `Array.MaxLength` encoded bytes per window, 64 MiB per decoded window, and `long.MaxValue` total output bytes. For an in-memory result, use `Vcdiff.Decode(original, patch, maxOutputBytes: 64 * 1024 * 1024)` to set a 64 MiB total limit. The array overload defaults its `maxOutputBytes` parameter to `int.MaxValue` and also enforces `Array.MaxLength`.
+The defaults are `Array.MaxLength` encoded bytes per window, 64 MiB per decoded window, and no limit on total output. The same options apply to the array and span decoders, where `MaxEncodedWindowBytes` has no effect because the patch is already in memory.
 
 ## Use your own buffers
 
@@ -99,11 +99,13 @@ ReadOnlySpan<byte> restored = buffer.AsSpan(0, written);
 
 ## Tune the encoder
 
-| Goal | Call |
+Pass a `VcdiffEncodeOptions` as the last argument to either `Encode` method.
+
+| Goal | Option |
 | --- | --- |
-| Search more thoroughly for matches (levels 0–9, default 3) | `Vcdiff.Encode(original, updated, compressionLevel: 9)` |
-| Spend extra encoding time to try for a smaller patch | `Vcdiff.Encode(original, updated, optimize: true)` |
-| Halve the number of buckets in the source index | `Vcdiff.Encode(original, updated, MemoryMode.LessMemory)` |
+| Search more thoroughly for matches (levels 0–9, default 3) | `CompressionLevel = 9` |
+| Spend extra encoding time to try for a smaller patch | `Optimize = true` |
+| Halve the number of buckets in the match indexes | `MemoryMode = MemoryMode.LessMemory` |
 
 ## Exchange patches with xdelta3
 
@@ -120,7 +122,7 @@ xdelta3 -d -s original.bin update.vcdiff restored.bin
 | If your patch uses… | Install | Use |
 | --- | --- | --- |
 | LZMA secondary compression | [xdelta.Lzma](https://www.nuget.org/packages/xdelta.Lzma) | `LzmaVcdiff.Decode(original, patch)` |
-| Embedded BLAKE3 digests | [xdelta.Blake3](https://www.nuget.org/packages/xdelta.Blake3) | `Vcdiff.Decode(original, patch, armor: Blake3Armor.Verify)` |
+| Embedded BLAKE3 digests | [xdelta.Blake3](https://www.nuget.org/packages/xdelta.Blake3) | `new VcdiffDecodeOptions { Armor = Blake3Armor.Verify }` |
 
 ## Testing and contributing
 

@@ -32,9 +32,12 @@ internal static class WindowVectors
         return [indicator, .. segment, .. Integer(delta.Length), .. delta];
     }
 
+    internal static VcdiffEncodeOptions Level(int level, MemoryMode memory = MemoryMode.Default, bool optimize = false)
+        => new() { CompressionLevel = level, MemoryMode = memory, Optimize = optimize };
+
     internal static void AssertDecodes(byte[] source, byte[] patch, byte[] expected)
     {
-        Assert.Equal(expected, Vcdiff.Decode(source, patch, maxOutputBytes: expected.Length));
+        Assert.Equal(expected, Vcdiff.Decode(source, patch, new VcdiffDecodeOptions { MaxOutputBytes = expected.Length }));
         byte[] buffer = Enumerable.Repeat((byte)0xCC, expected.Length + 2).ToArray();
         Assert.Equal(expected.Length, Vcdiff.Decode(source, patch, buffer.AsSpan(1)));
         Assert.Equal(expected, buffer[1..^1]);

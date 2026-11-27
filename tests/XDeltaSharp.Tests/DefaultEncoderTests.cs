@@ -23,9 +23,10 @@ public class DefaultEncoderTests
         AssertDecodes([], expected, target);
         foreach (var memory in new[] { MemoryMode.Default, MemoryMode.LessMemory })
         {
-            Assert.Equal(expected, Vcdiff.Encode([], target, memory));
+            var options = new VcdiffEncodeOptions { MemoryMode = memory };
+            Assert.Equal(expected, Vcdiff.Encode([], target, options));
             var sink = new ArrayBufferWriter<byte>();
-            Vcdiff.Encode([], target, sink, memory);
+            Vcdiff.Encode([], target, sink, options);
             Assert.Equal(expected, sink.WrittenSpan.ToArray());
         }
     }
@@ -88,10 +89,11 @@ public class DefaultEncoderTests
             byte[] target = data.ToArray();
             foreach (var memory in new[] { MemoryMode.Default, MemoryMode.LessMemory })
             {
-                byte[] patch = Vcdiff.Encode(source, target, memory);
+                var options = new VcdiffEncodeOptions { MemoryMode = memory };
+                byte[] patch = Vcdiff.Encode(source, target, options);
                 var sink = new ArrayBufferWriter<byte>();
                 sink.Write("prefix"u8);
-                Vcdiff.Encode(source, target, sink, memory);
+                Vcdiff.Encode(source, target, sink, options);
                 Assert.Equal("prefix"u8.ToArray(), sink.WrittenSpan[..6].ToArray());
                 Assert.Equal(patch, sink.WrittenSpan[6..].ToArray());
                 AssertDecodes(source, patch, target);
@@ -211,17 +213,19 @@ public class DefaultEncoderTests
         byte[] source = Bytes(128);
         byte[] target = [21, .. source.AsSpan(8, copyLength), 42];
         var sink = new ArrayBufferWriter<byte>(128);
-        byte[] expected = Vcdiff.Encode(source, target, memoryMode);
-        Vcdiff.Encode(source, target, sink, memoryMode);
+        // Build the options once. They are the caller's allocation, not the encoder's.
+        var options = new VcdiffEncodeOptions { MemoryMode = memoryMode };
+        byte[] expected = Vcdiff.Encode(source, target, options);
+        Vcdiff.Encode(source, target, sink, options);
         long start = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++)
         {
             sink.ResetWrittenCount();
-            Vcdiff.Encode(source, target, sink, memoryMode);
+            Vcdiff.Encode(source, target, sink, options);
         }
         long writerBytes = GC.GetAllocatedBytesForCurrentThread() - start;
         start = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 100; i++) GC.KeepAlive(Vcdiff.Encode(source, target, memoryMode));
+        for (int i = 0; i < 100; i++) GC.KeepAlive(Vcdiff.Encode(source, target, options));
         long allocatingBytes = GC.GetAllocatedBytesForCurrentThread() - start;
         start = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++) GC.KeepAlive(new byte[expected.Length]);

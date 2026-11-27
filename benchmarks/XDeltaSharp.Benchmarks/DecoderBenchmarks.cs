@@ -68,16 +68,18 @@ internal static class DecoderBenchmarks
     private static void MeasureCase(string name, byte[] source, byte[] patch, int targetLength, byte[] digest,
         bool lzma = false, VcdiffArmor armor = default, FileStream? fileDictionary = null)
     {
+        var options = new VcdiffDecodeOptions { MaxOutputBytes = targetLength };
+        var lzmaOptions = new LzmaDecodeOptions { MaxOutputBytes = targetLength, Armor = armor };
         byte[] array = [];
         Measure("array", () => array = lzma
-            ? LzmaVcdiff.Decode(source, patch, armor, maxOutputBytes: targetLength)
-            : Vcdiff.Decode(source, patch, maxOutputBytes: targetLength));
+            ? LzmaVcdiff.Decode(source, patch, lzmaOptions)
+            : Vcdiff.Decode(source, patch, options));
         Validate(array);
 
         byte[] buffer = new byte[targetLength];
         int written = 0;
         Measure("span", () => written = lzma
-            ? LzmaVcdiff.Decode(source, patch, buffer.AsSpan(), armor)
+            ? LzmaVcdiff.Decode(source, patch, buffer.AsSpan(), lzmaOptions)
             : Vcdiff.Decode(source, patch, buffer.AsSpan()));
         Validate(buffer.AsSpan(0, written));
 
@@ -96,8 +98,8 @@ internal static class DecoderBenchmarks
                 input.Position = 0;
                 output.SetLength(0);
                 streamed = lzma
-                    ? LzmaVcdiff.Decode(streamSource, input, output, armor, maxOutputBytes: targetLength)
-                    : Vcdiff.Decode(streamSource, input, output, maxOutputBytes: targetLength);
+                    ? LzmaVcdiff.Decode(streamSource, input, output, lzmaOptions)
+                    : Vcdiff.Decode(streamSource, input, output, options);
             });
             if (streamed != output.Length)
                 throw new InvalidDataException($"Incorrect stream length for {name}.");

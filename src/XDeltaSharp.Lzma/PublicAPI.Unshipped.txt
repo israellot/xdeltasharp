@@ -1,1 +1,14 @@
 #nullable enable
+XDeltaSharp.Lzma.LzmaDecodeOptions
+XDeltaSharp.Lzma.LzmaDecodeOptions.LzmaDecodeOptions() -> void
+XDeltaSharp.Lzma.LzmaDecodeOptions.MaxDictionaryBytes.get -> int
+XDeltaSharp.Lzma.LzmaDecodeOptions.MaxDictionaryBytes.init -> void
+XDeltaSharp.Lzma.LzmaDecodeOptions.MaxExpandedSectionBytes.get -> int
+XDeltaSharp.Lzma.LzmaDecodeOptions.MaxExpandedSectionBytes.init -> void
+XDeltaSharp.Lzma.LzmaVcdiff
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.IO.Stream! source, System.IO.Stream! patch, System.IO.Stream! destination) -> long
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.IO.Stream! source, System.IO.Stream! patch, System.IO.Stream! destination, XDeltaSharp.Lzma.LzmaDecodeOptions! options) -> long
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch) -> byte[]!
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch, System.Span<byte> destination) -> int
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch, System.Span<byte> destination, XDeltaSharp.Lzma.LzmaDecodeOptions! options) -> int
+static XDeltaSharp.Lzma.LzmaVcdiff.Decode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> patch, XDeltaSharp.Lzma.LzmaDecodeOptions! options) -> byte[]!

@@ -69,10 +69,10 @@ public class WindowWriterTests
     {
         for (int opcode = 163; opcode <= 255; opcode++)
         {
-            var (a, b) = DefaultCodeTable.Lookup((byte)opcode);
-            byte FirstOpcode(Instruction instruction) => (byte)Enumerable.Range(0, 163)
+            var (first, second) = DefaultCodeTable.Lookup((byte)opcode);
+            byte SingleOpcode(Instruction instruction) => (byte)Enumerable.Range(0, 163)
                 .Single(i => DefaultCodeTable.Lookup((byte)i).First == instruction);
-            Assert.True(DefaultCodeTable.TryPair(FirstOpcode(a), FirstOpcode(b), out var actual));
+            Assert.True(DefaultCodeTable.TryPair(SingleOpcode(first), SingleOpcode(second), out var actual));
             Assert.Equal(opcode, actual);
         }
     }

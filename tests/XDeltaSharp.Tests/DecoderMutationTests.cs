@@ -8,6 +8,22 @@ public class DecoderMutationTests
 {
     private const int Limit = 4096;
 
+    private static readonly VcdiffDecodeOptions Limits = new()
+    {
+        MaxOutputBytes = Limit,
+        MaxWindowBytes = Limit,
+        MaxEncodedWindowBytes = Limit
+    };
+
+    private static readonly LzmaDecodeOptions LzmaLimits = new()
+    {
+        MaxOutputBytes = Limit,
+        MaxWindowBytes = Limit,
+        MaxEncodedWindowBytes = Limit,
+        MaxExpandedSectionBytes = Limit,
+        MaxDictionaryBytes = Limit
+    };
+
     [Theory]
     [InlineData("open-vcdiff")]
     [InlineData("xdelta3")]
@@ -40,15 +56,13 @@ public class DecoderMutationTests
         {
             string context = $"{fixture}, {mutation}";
             byte[]? allocated = DecodeOrReject(() => lzma
-                ? LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, maxExpandedSectionBytes: Limit,
-                    maxDictionaryBytes: Limit, maxOutputBytes: Limit, maxWindowBytes: Limit)
-                : Vcdiff.Decode(source, patch, maxOutputBytes: Limit, maxWindowBytes: Limit), context);
+                ? LzmaVcdiff.Decode(source, patch, LzmaLimits)
+                : Vcdiff.Decode(source, patch, Limits), context);
             byte[]? buffered = DecodeOrReject(() =>
             {
                 int length = lzma
-                    ? LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, buffer, maxExpandedSectionBytes: Limit,
-                        maxDictionaryBytes: Limit, maxWindowBytes: Limit)
-                    : Vcdiff.Decode(source, patch, buffer, maxWindowBytes: Limit);
+                    ? LzmaVcdiff.Decode(source, patch, buffer, LzmaLimits)
+                    : Vcdiff.Decode(source, patch, buffer, Limits);
                 return buffer[..length];
             }, context, callerBuffer: true);
             byte[]? streamed = DecodeOrReject(() =>
@@ -57,10 +71,8 @@ public class DecoderMutationTests
                 using var input = new MemoryStream(patch);
                 using var output = new MemoryStream();
                 long length = lzma
-                    ? LzmaVcdiff.DecodeWithSecondaryLimits(dictionary, input, output, maxEncodedWindowBytes: Limit,
-                        maxExpandedSectionBytes: Limit, maxDictionaryBytes: Limit, maxOutputBytes: Limit, maxWindowBytes: Limit)
-                    : Vcdiff.DecodeWithLimits(dictionary, input, output, maxEncodedWindowBytes: Limit,
-                        maxOutputBytes: Limit, maxWindowBytes: Limit);
+                    ? LzmaVcdiff.Decode(dictionary, input, output, LzmaLimits)
+                    : Vcdiff.Decode(dictionary, input, output, Limits);
                 Assert.Equal(output.Length, length);
                 return output.ToArray();
             }, context);

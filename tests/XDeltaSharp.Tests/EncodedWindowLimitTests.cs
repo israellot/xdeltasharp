@@ -36,18 +36,13 @@ public class EncodedWindowLimitTests
         Assert.Equal(input.Length, input.Position);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ValidatesBudgetBeforeConsumingInput(bool lzma)
+    [Fact]
+    public void RejectsABudgetOutsideTheArrayRange()
     {
-        using var input = new MemoryStream(Patch());
-        Assert.Throws<ArgumentOutOfRangeException>("maxEncodedWindowBytes", () =>
-            Decode(lzma, Stream.Null, input, Stream.Null, -1));
-        Assert.Throws<ArgumentOutOfRangeException>("maxEncodedWindowBytes", () =>
-            Decode(lzma, Stream.Null, input, Stream.Null, Array.MaxLength + 1));
-        Assert.Equal(0, input.Position);
-        Assert.Equal(0, Decode(lzma, Stream.Null, input, Stream.Null, Array.MaxLength));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new VcdiffDecodeOptions { MaxEncodedWindowBytes = -1 });
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new VcdiffDecodeOptions { MaxEncodedWindowBytes = Array.MaxLength + 1 });
+        Assert.Equal(Array.MaxLength, new VcdiffDecodeOptions().MaxEncodedWindowBytes);
     }
 
     [Theory]
@@ -77,8 +72,8 @@ public class EncodedWindowLimitTests
         using var output = new MemoryStream();
 
         // This patch is less than 1 KiB on the wire and reconstructs three windows over 16 MiB.
-        long written = LzmaVcdiff.DecodeWithLimits(source, patch, output, maxEncodedWindowBytes: 1024,
-            armor: Blake3Armor.Verify);
+        long written = LzmaVcdiff.Decode(source, patch, output,
+            new LzmaDecodeOptions { MaxEncodedWindowBytes = 1024, Armor = Blake3Armor.Verify });
         Assert.Equal(16_779_027, written);
         Assert.Equal(written, output.Length);
     }
@@ -86,6 +81,16 @@ public class EncodedWindowLimitTests
     private static long Decode(bool lzma, Stream source, Stream patch, Stream output, int maxEncodedWindowBytes,
         long maxOutputBytes = long.MaxValue, int maxWindowBytes = Vcdiff.MaxTargetWindowBytes)
         => lzma
-            ? LzmaVcdiff.DecodeWithLimits(source, patch, output, maxEncodedWindowBytes, maxOutputBytes, maxWindowBytes)
-            : Vcdiff.DecodeWithLimits(source, patch, output, maxEncodedWindowBytes, maxOutputBytes, maxWindowBytes);
+            ? LzmaVcdiff.Decode(source, patch, output, new LzmaDecodeOptions
+            {
+                MaxEncodedWindowBytes = maxEncodedWindowBytes,
+                MaxOutputBytes = maxOutputBytes,
+                MaxWindowBytes = maxWindowBytes
+            })
+            : Vcdiff.Decode(source, patch, output, new VcdiffDecodeOptions
+            {
+                MaxEncodedWindowBytes = maxEncodedWindowBytes,
+                MaxOutputBytes = maxOutputBytes,
+                MaxWindowBytes = maxWindowBytes
+            });
 }

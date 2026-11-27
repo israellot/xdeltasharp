@@ -119,8 +119,8 @@ public class DecoderTests
     {
         var patch = Patch(Window(3, "abc"u8.ToArray(), [4], []), Window(3, [], [19, 3], [0], 2, 3));
         AssertDecodes([], patch, "abcabc"u8.ToArray());
-        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, maxOutputBytes: 5));
-        Assert.Throws<ArgumentOutOfRangeException>(() => Vcdiff.Decode([], patch, maxOutputBytes: -1));
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, new VcdiffDecodeOptions { MaxOutputBytes = 5 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Vcdiff.Decode([], patch, new VcdiffDecodeOptions { MaxOutputBytes = -1 }));
         var output = new byte[5];
         Assert.Throws<ArgumentException>(() => Vcdiff.Decode([], patch, output));
     }
@@ -140,7 +140,7 @@ public class DecoderTests
     {
         const int count = (1 << 20) + 1;
         var patch = Patch(Window(count, [42], [0, .. Integer(count)], []), Window(1, [1], [2], []));
-        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, maxOutputBytes: count));
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, new VcdiffDecodeOptions { MaxOutputBytes = count }));
         AssertDecodes([], patch, [.. Enumerable.Repeat((byte)42, count), 1]);
     }
 

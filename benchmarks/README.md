@@ -20,11 +20,11 @@ Run `dotnet test -c Release` for the [RFC 3284](https://www.rfc-editor.org/rfc/r
 
 ## Encoding levels
 
-Both allocating and buffer-writer APIs accept an integer compression level from **0 to 9** and an optional memory policy. Omitting the level uses **level 3**.
+`VcdiffEncodeOptions` takes a compression level from 0 to 9 and a memory policy, for both the allocating and buffer-writer methods. The default is level 3.
 
 ```csharp
-byte[] patch = Vcdiff.Encode(source, target, compressionLevel: 9);
-Vcdiff.Encode(source, target, destinationWriter, compressionLevel: 3, memoryMode: MemoryMode.LessMemory);
+byte[] patch = Vcdiff.Encode(source, target, new VcdiffEncodeOptions { CompressionLevel = 9 });
+Vcdiff.Encode(source, target, destinationWriter, new VcdiffEncodeOptions { MemoryMode = MemoryMode.LessMemory });
 ```
 
 The level mapping follows xdelta3 3.2.2. The target seed is four bytes, the indexed source seed is nine bytes, and runs start at eight equal bytes. The lazy limit controls which short matches get another look at the next position. An improving lazy match must extend past the pending match. The stop length ends a target-chain search early. [Upstream CLI mapping](https://github.com/jmacd/xdelta/blob/v3.2.2/xdelta3/xdelta3-main.h) · [Matcher settings](https://github.com/jmacd/xdelta/blob/v3.2.2/xdelta3/xdelta3-cfgs.h)
@@ -46,11 +46,11 @@ The writer packs adjacent instructions when the default table permits it and cho
 
 ## Optional operation pass
 
-With `optimize: true`, the encoder makes an extra pass over each completed target window. It can extend a COPY or RUN through matching neighboring bytes, absorb redundant operations, and turn a short instruction into literals when that saves bytes. It also trims the source dictionary to the range used by source copies and rebases target-copy addresses.
+With `Optimize = true`, the encoder makes an extra pass over each completed target window. It can extend a COPY or RUN through matching neighboring bytes, absorb redundant operations, and turn a short instruction into literals when that saves bytes. It also trims the source dictionary to the range used by source copies and rebases target-copy addresses.
 
 ```csharp
-byte[] patch = Vcdiff.Encode(source, target, optimize: true);
-Vcdiff.Encode(source, target, destinationWriter, optimize: true, compressionLevel: 9);
+byte[] patch = Vcdiff.Encode(source, target, new VcdiffEncodeOptions { Optimize = true });
+Vcdiff.Encode(source, target, destinationWriter, new VcdiffEncodeOptions { Optimize = true, CompressionLevel = 9 });
 ```
 
 The pass re-encodes its candidate with fresh address caches and opcode pairing. It compares complete window sizes, including headers and the literal-only fallback. On a tie or a larger candidate, it emits the original bytes. This bounds patch size by the ordinary encode for the same level and memory policy. It uses temporary storage for one window’s operations and spends additional encoding time. The decoder uses the usual VCDIFF format.
@@ -73,7 +73,7 @@ Use `--profile-default <source> <target>` to measure the level-3 default and pri
 
 Use `--short-search` to time an unrelated 256-byte target and an exact match at the end of a 64 MiB source. When a short target would need a disproportionately large source index, the encoder spaces up to eight full source scans across the target. At every probe it still checks the predicted source position. A match at a sampled probe can extend backwards. Short moved fragments between probes can become literals.
 
-Historical results for the retired Fast and Exhaustive matchers remain in `Results/`, including the [original Default profile](Results/MobyDick-Default-profile.md). The [afterburner comparison](Results/Window-afterburner-net8-arm64.md) records all three implementations at the time of that experiment. Its Default rows refer to level 3.
+The [afterburner comparison](Results/Window-afterburner-net8-arm64.md) predates the numbered levels and also lists the retired Fast and Exhaustive matchers. Its Default rows are level 3. [Experiments that did not ship](Results/NOTES.md) summarizes the rest of that work.
 
 ### Reproduce the README comparison
 

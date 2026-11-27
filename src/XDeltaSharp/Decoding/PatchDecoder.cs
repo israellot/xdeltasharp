@@ -3,66 +3,51 @@ using XDeltaSharp.Format;
 namespace XDeltaSharp.Decoding;
 
 /// <summary>Applies patches to each supported destination using the same window reader and instruction decoder.</summary>
-internal static class PatchDecoder
+internal static partial class PatchDecoder
 {
-    // xdelta.Lzma 1.0.0 calls these three signatures through InternalsVisibleTo.
-    internal static byte[] Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, int maxOutputBytes,
-        int maxWindowBytes, Func<ISecondaryDecoder>? createSecondary, IArmorVerifier? armor = null) =>
-        DecodeWithSecondary(source, patch, maxOutputBytes, maxWindowBytes, SecondaryDecoderFactory.From(createSecondary), armor);
-
-    internal static int Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
-        int maxWindowBytes, Func<ISecondaryDecoder>? createSecondary, IArmorVerifier? armor = null) =>
-        DecodeWithSecondary(source, patch, destination, maxWindowBytes, SecondaryDecoderFactory.From(createSecondary), armor);
-
-    internal static long Decode(Stream source, Stream patch, Stream destination, long maxOutputBytes,
-        int maxWindowBytes, int maxEncodedWindowBytes, Func<ISecondaryDecoder>? createSecondary, IArmorVerifier? armor = null) =>
-        DecodeWithSecondary(source, patch, destination, maxOutputBytes, maxWindowBytes, maxEncodedWindowBytes,
-            SecondaryDecoderFactory.From(createSecondary), armor);
-
-    internal static byte[] DecodeWithSecondary(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, int maxOutputBytes,
-        int maxWindowBytes, SecondaryDecoderFactory? secondaryFactory, IArmorVerifier? armor = null)
+    internal static byte[] Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, DecodeLimits limits,
+        SecondaryDecoderFactory? secondaryFactory, IArmorVerifier? armor)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(maxOutputBytes);
-        ValidateWindowLimit(maxWindowBytes);
-        var reader = new WindowReader(patch, maxWindowBytes, secondaryFactory != null, armor);
+        var reader = new WindowReader(patch, limits.MaxWindowBytes, secondaryFactory != null, armor);
         armor?.VerifySource(source);
+
+        // Read the window headers once to size the result before allocating it.
         var sizing = reader;
         int total = 0;
-        int limit = Math.Min(maxOutputBytes, Array.MaxLength);
+        int limit = (int)Math.Min(limits.MaxOutputBytes, Array.MaxLength);
         while (sizing.TryReadWindow(source.Length, total, limit - total, out var window))
             total += window.TargetLength;
 
         var result = new byte[total];
-        DecodeWindows(reader, source, result, secondaryFactory);
+        DecodeWindows(reader, source, result, long.MaxValue, secondaryFactory);
         armor?.VerifyTarget(result);
         return result;
     }
 
-    internal static int DecodeWithSecondary(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
-        int maxWindowBytes, SecondaryDecoderFactory? secondaryFactory, IArmorVerifier? armor = null)
+    internal static int Decode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> patch, Span<byte> destination,
+        DecodeLimits limits, SecondaryDecoderFactory? secondaryFactory, IArmorVerifier? armor)
     {
-        ValidateWindowLimit(maxWindowBytes);
         if (source.Overlaps(destination))
             source = source.ToArray();
         if (patch.Overlaps(destination))
             patch = patch.ToArray();
 
-        var reader = new WindowReader(patch, maxWindowBytes, secondaryFactory != null, armor);
+        var reader = new WindowReader(patch, limits.MaxWindowBytes, secondaryFactory != null, armor);
         armor?.VerifySource(source);
-        int written = DecodeWindows(reader, source, destination, secondaryFactory);
+        int written = DecodeWindows(reader, source, destination, limits.MaxOutputBytes, secondaryFactory);
         armor?.VerifyTarget(destination[..written]);
         return written;
     }
 
     private static int DecodeWindows(WindowReader reader, ReadOnlySpan<byte> source, Span<byte> destination,
-        SecondaryDecoderFactory? secondaryFactory)
+        long maxOutputBytes, SecondaryDecoderFactory? secondaryFactory)
     {
         AddressCache? cache = null;
         ISecondaryDecoder? secondary = null;
         int written = 0;
         try
         {
-            while (reader.TryReadWindow(source.Length, written, long.MaxValue, out var window))
+            while (reader.TryReadWindow(source.Length, written, maxOutputBytes - written, out var window))
             {
                 if (window.TargetLength > destination.Length - written)
                     throw new ArgumentException("Destination is too small for the target.", nameof(destination));
@@ -82,16 +67,12 @@ internal static class PatchDecoder
         return written;
     }
 
-    internal static long DecodeWithSecondary(Stream source, Stream patch, Stream destination, long maxOutputBytes,
-        int maxWindowBytes, int maxEncodedWindowBytes, SecondaryDecoderFactory? secondaryFactory, IArmorVerifier? armor = null)
+    internal static long Decode(Stream source, Stream patch, Stream destination, DecodeLimits limits,
+        SecondaryDecoderFactory? secondaryFactory, IArmorVerifier? armor)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(destination);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxOutputBytes);
-        ValidateWindowLimit(maxWindowBytes);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxEncodedWindowBytes);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(maxEncodedWindowBytes, Array.MaxLength);
         ValidateStreams(source, patch, destination);
 
         bool canReadSource = source.CanRead && source.CanSeek;
@@ -99,8 +80,8 @@ internal static class PatchDecoder
         long sourceLength = canReadSource ? Math.Max(0, source.Length - sourceStart) : -1;
         long outputStart = destination.CanSeek ? destination.Position : 0;
         bool canReadPriorTarget = destination.CanRead && destination.CanSeek;
-        long limit = Math.Min(maxOutputBytes, long.MaxValue - outputStart);
-        var reader = new WindowReader(patch, maxWindowBytes, maxEncodedWindowBytes, secondaryFactory != null, armor);
+        long limit = Math.Min(limits.MaxOutputBytes, long.MaxValue - outputStart);
+        var reader = new WindowReader(patch, limits.MaxWindowBytes, limits.MaxEncodedWindowBytes, secondaryFactory != null, armor);
         AddressCache? cache = null;
         ISecondaryDecoder? secondary = null;
         byte[] buffer = [];
@@ -160,11 +141,5 @@ internal static class PatchDecoder
             throw new ArgumentException("The patch stream must be independent of the source.", nameof(patch));
         if (ReferenceEquals(patch, destination) || (ReferenceEquals(source, destination) && source != Stream.Null))
             throw new ArgumentException("The destination stream must be independent of the inputs.", nameof(destination));
-    }
-
-    private static void ValidateWindowLimit(int maxWindowBytes)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(maxWindowBytes);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(maxWindowBytes, Vcdiff.MaxTargetWindowBytes);
     }
 }

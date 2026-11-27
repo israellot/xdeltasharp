@@ -91,7 +91,7 @@ public class UpstreamEncoderTests
     // and a COPY from the current target does not demonstrate reuse of the source.
     private static (int Added, int SourceCopied) EncodeAndInspect(byte[] source, byte[] target, int level)
     {
-        byte[] patch = Vcdiff.Encode(source, target, level);
+        byte[] patch = Vcdiff.Encode(source, target, new VcdiffEncodeOptions { CompressionLevel = level });
         Assert.Equal(target, Vcdiff.Decode(source, patch));
         var reader = new WindowReader(patch, Vcdiff.MaxTargetWindowBytes);
         Assert.True(reader.TryReadWindow(source.Length, 0, target.Length, out var window));

@@ -12,12 +12,13 @@ internal static class Xdelta3Comparison
         byte[] restored = new byte[target.Length];
         for (int level = 0; level <= 9; level++)
         {
-            byte[] expected = Vcdiff.Encode(source, target, level);
+            var options = new VcdiffEncodeOptions { CompressionLevel = level };
+            byte[] expected = Vcdiff.Encode(source, target, options);
             var writer = new ArrayBufferWriter<byte>(expected.Length);
             void EncodeManaged()
             {
                 writer.ResetWrittenCount();
-                Vcdiff.Encode(source, target, writer, level);
+                Vcdiff.Encode(source, target, writer, options);
             }
 
             int patchLength = 0;
