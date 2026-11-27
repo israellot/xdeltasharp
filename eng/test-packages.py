@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -61,6 +62,11 @@ def run_example(work, code, packages, version, framework, replacement_core=None)
     (work / "Program.cs").write_text(code)
     subprocess.run(["dotnet", "build", project, "-c", "Release",
                     f"-p:RestorePackagesPath={work.parent / 'cache'}"], cwd=ROOT, check=True)
+    assets = json.loads((work / "obj/project.assets.json").read_text())["targets"][framework]
+    for name, assembly in ASSEMBLIES.items():
+        key = f"{name}/{version}"
+        if key in assets and f"lib/{framework}/{assembly}.dll" not in assets[key]["runtime"]:
+            raise ValueError(f"{key} did not resolve its {framework} assembly")
     output = work / "bin/Release" / framework
     if replacement_core is not None:
         with ZipFile(replacement_core) as package:

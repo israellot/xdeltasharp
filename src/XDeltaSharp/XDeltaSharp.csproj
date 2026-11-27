@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../eng/TargetFrameworks.props" />
   <PropertyGroup>
     <PackageId>xdelta</PackageId>
     <Title>XDeltaSharp</Title>

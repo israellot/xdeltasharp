@@ -2,7 +2,7 @@
 
 ## Set up a branch
 
-Start from the latest `master` and create a branch for your change. If you’re contributing from a fork, sync it with `israellot/xdeltasharp` first. Install the exact .NET SDK version in [global.json](global.json). Local builds, CI, and package releases use that SDK.
+Start from the latest `master` and create a branch for your change. If you’re contributing from a fork, sync it with `israellot/xdeltasharp` first. Install the .NET SDK pinned in [global.json](global.json) and the .NET 8, 9, and 10 runtimes. The test suite and package examples run on all four runtimes, including .NET 11. Local builds, CI, and package releases use that SDK.
 
 ```sh
 git switch -c fix-window-decoding

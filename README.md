@@ -3,7 +3,7 @@
 [![Line coverage](.github/badges/lines.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
 [![Branch coverage](.github/badges/branches.svg)](https://github.com/israellot/xdeltasharp/actions/workflows/coverage.yml?query=branch%3Amaster+event%3Apush)
 
-XDeltaSharp creates VCDIFF binary patches in .NET 8+. Send a patch to anyone who has the original file so they can reconstruct the update. The core package is managed C# with no dependencies.
+XDeltaSharp creates VCDIFF binary patches in .NET 8+. Send a patch to anyone who has the original file so they can reconstruct the update. The core package is managed C# with no dependencies. NuGet packages and direct project references provide matching builds for .NET 8, 9, 10, and 11.
 
 ```sh
 dotnet add package xdelta
@@ -68,12 +68,12 @@ The core decoder reads standard VCDIFF patches with the default code table and u
 
 For two editions of *Moby-Dick*, XDeltaSharp encoded the **1.25 MB** update as a **21.3 kB patch (1.7%)**. At the same compression level (3), xdelta3 produced a **21.5 kB** patch. Both decoders applied the xdelta3 patch. [Sample files](https://github.com/israellot/DeltaSharp/tree/main/src/Benchmarks/Data)
 
-Median time per operation in memory, in milliseconds (.NET 8.0.34 and native xdelta3 3.2.2).
+Median time per operation in memory, in milliseconds (.NET 11.0.0 and native xdelta3 3.2.2).
 
 | Host | XDeltaSharp encode | xdelta3 encode | XDeltaSharp decode | xdelta3 decode |
 | --- | ---: | ---: | ---: | ---: |
-| Apple M1 · macOS 15 | 4.71 | 6.54 | 0.25 | 0.29 |
-| Intel Xeon 6975P-C · Ubuntu 24.04 | 2.87 | 3.41 | 0.23 | 0.21 |
-| AMD EPYC 7763 · Ubuntu 22.04 | 3.91 | 4.10 | 0.27 | 0.23 |
+| Apple M1 · macOS 15 | 2.29 | 5.58 | 0.21 | 0.22 |
+| Intel Xeon 6975P-C · Ubuntu 24.04 | 2.55 | 3.47 | 0.20 | 0.22 |
+| AMD EPYC 9V74 · Ubuntu 22.04 | 2.33 | 3.31 | 0.17 | 0.15 |
 
-[Full results (CSV)](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/Results/MobyDick-xdelta3-net8.csv) · [Benchmark method](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md#reproduce-the-readme-comparison) · [MIT license](https://opensource.org/license/mit)
+[Full results (CSV)](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/Results/MobyDick-xdelta3-net11.csv) · [Benchmark method](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md#reproduce-the-readme-comparison) · [MIT license](https://opensource.org/license/mit)

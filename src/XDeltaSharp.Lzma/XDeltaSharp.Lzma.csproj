@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../eng/TargetFrameworks.props" />
   <PropertyGroup>
     <PackageId>xdelta.Lzma</PackageId>
     <Title>XDeltaSharp LZMA decoder</Title>
@@ -8,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="../XDeltaSharp/XDeltaSharp.csproj" />
     <PackageReference Include="SharpCompress" Version="0.50.12" />
-    <None Update="README.md" Pack="true" PackagePath="/" />
+    <None Remove="README.md" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

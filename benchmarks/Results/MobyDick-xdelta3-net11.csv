@@ -1,0 +1,73 @@
+Runner,Architecture,CPU,OS,Operation,Level,Patch encoder,Library,Patch bytes,Median ms
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,0,XDeltaSharp,XDeltaSharp,34864,1.296419
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,0,xdelta3,xdelta3,45363,2.030650
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,1,XDeltaSharp,XDeltaSharp,35194,2.927000
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,1,xdelta3,xdelta3,42788,6.797775
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,2,XDeltaSharp,XDeltaSharp,22671,2.253262
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,2,xdelta3,xdelta3,24606,4.677875
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,3,XDeltaSharp,XDeltaSharp,21287,2.293862
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,3,xdelta3,xdelta3,21534,5.578875
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,decode,3,XDeltaSharp,XDeltaSharp,21287,0.198505
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,decode,3,XDeltaSharp,xdelta3,21287,0.221288
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,decode,3,xdelta3,XDeltaSharp,21534,0.210299
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,decode,3,xdelta3,xdelta3,21534,0.220118
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,4,XDeltaSharp,XDeltaSharp,21287,2.853463
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,4,xdelta3,xdelta3,21534,4.382550
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,5,XDeltaSharp,XDeltaSharp,21287,3.523650
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,5,xdelta3,xdelta3,21534,5.607900
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,6,XDeltaSharp,XDeltaSharp,20689,5.988000
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,6,xdelta3,xdelta3,20323,7.528900
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,7,XDeltaSharp,XDeltaSharp,20656,17.693000
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,7,xdelta3,xdelta3,19742,23.959500
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,8,XDeltaSharp,XDeltaSharp,20656,20.761950
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,8,xdelta3,xdelta3,19742,30.905300
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,9,XDeltaSharp,XDeltaSharp,20656,17.703550
+macos-15,arm64,Apple M1 (Virtual),macOS 15.8.2,encode,9,xdelta3,xdelta3,19742,30.051200
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,0,XDeltaSharp,XDeltaSharp,34864,1.181113
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,0,xdelta3,xdelta3,45363,1.934575
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,1,XDeltaSharp,XDeltaSharp,35194,2.583750
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,1,xdelta3,xdelta3,42788,3.467050
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,2,XDeltaSharp,XDeltaSharp,22671,2.589800
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,2,xdelta3,xdelta3,24606,3.264362
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,3,XDeltaSharp,XDeltaSharp,21287,2.549787
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,3,xdelta3,xdelta3,21534,3.474287
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,decode,3,XDeltaSharp,XDeltaSharp,21287,0.226958
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,decode,3,XDeltaSharp,xdelta3,21287,0.242644
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,decode,3,xdelta3,XDeltaSharp,21534,0.200648
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,decode,3,xdelta3,xdelta3,21534,0.222062
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,4,XDeltaSharp,XDeltaSharp,21287,2.545913
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,4,xdelta3,xdelta3,21534,3.465737
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,5,XDeltaSharp,XDeltaSharp,21287,2.542813
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,5,xdelta3,xdelta3,21534,3.481675
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,6,XDeltaSharp,XDeltaSharp,20689,4.054075
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,6,xdelta3,xdelta3,20323,5.201200
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,7,XDeltaSharp,XDeltaSharp,20656,11.786650
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,7,xdelta3,xdelta3,19742,23.266200
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,8,XDeltaSharp,XDeltaSharp,20656,11.723150
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,8,xdelta3,xdelta3,19742,23.157100
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,9,XDeltaSharp,XDeltaSharp,20656,11.753700
+ubuntu-24.04,x64,Intel(R) Xeon(R) 6975P-C,Ubuntu 24.04,encode,9,xdelta3,xdelta3,19742,23.080200
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,0,XDeltaSharp,XDeltaSharp,34864,1.372375
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,0,xdelta3,xdelta3,45363,2.143362
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,1,XDeltaSharp,XDeltaSharp,35194,2.578413
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,1,xdelta3,xdelta3,42788,3.389725
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,2,XDeltaSharp,XDeltaSharp,22671,2.460538
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,2,xdelta3,xdelta3,24606,3.143050
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,3,XDeltaSharp,XDeltaSharp,21287,2.331538
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,3,xdelta3,xdelta3,21534,3.314650
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,decode,3,XDeltaSharp,XDeltaSharp,21287,0.192741
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,decode,3,XDeltaSharp,xdelta3,21287,0.164145
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,decode,3,xdelta3,XDeltaSharp,21534,0.169288
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,decode,3,xdelta3,xdelta3,21534,0.154879
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,4,XDeltaSharp,XDeltaSharp,21287,2.326300
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,4,xdelta3,xdelta3,21534,3.299000
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,5,XDeltaSharp,XDeltaSharp,21287,2.325638
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,5,xdelta3,xdelta3,21534,3.275513
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,6,XDeltaSharp,XDeltaSharp,20689,3.604150
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,6,xdelta3,xdelta3,20323,5.418000
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,7,XDeltaSharp,XDeltaSharp,20656,13.094850
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,7,xdelta3,xdelta3,19742,27.681500
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,8,XDeltaSharp,XDeltaSharp,20656,11.074350
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,8,xdelta3,xdelta3,19742,27.835200
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,9,XDeltaSharp,XDeltaSharp,20656,10.707500
+ubuntu-22.04,x64,AMD EPYC 9V74 80-Core Processor,Ubuntu 22.04,encode,9,xdelta3,xdelta3,19742,28.320900

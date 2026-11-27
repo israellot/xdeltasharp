@@ -65,18 +65,23 @@ jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        major: [8, 9, 10, 11]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        id: sdk
         with:
-          global-json-file: global.json
-          dotnet-version: |
-            8.0.x
-            9.0.x
-            10.0.x
-      - run: dotnet test XDeltaSharp.sln -c Debug -- xUnit.ParallelizeTestCollections=false
+          dotnet-version: ${{ matrix.major }}.0.x
+      - name: Test project references with the consumer's SDK
+        working-directory: ${{ runner.temp }}
+        run: |
+          dotnet new globaljson --sdk-version "${{ steps.sdk.outputs.dotnet-version }}" --roll-forward disable
+          dotnet test "$env:GITHUB_WORKSPACE/tests/XDeltaSharp.Tests/XDeltaSharp.Tests.csproj" -c Debug -f net${{ matrix.major }}.0 -- xUnit.ParallelizeTestCollections=false
 
   update-badges:
     needs: coverage
