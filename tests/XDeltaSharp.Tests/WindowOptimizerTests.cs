@@ -9,6 +9,22 @@ namespace XDeltaSharp.Tests;
 public class WindowOptimizerTests
 {
     [Fact]
+    public void BackwardExtensionStopsAtEveryMismatchAndAtTheShorterSpan()
+    {
+        byte[] left = new byte[73], right = new byte[91];
+        int limit = left.Length;
+        for (int suffix = 0; suffix < limit; suffix++)
+        {
+            right[^(suffix + 1)] = 1;
+            Assert.Equal(suffix, CopyMatch.CommonSuffixLength(left, right));
+            Assert.Equal(suffix, CopyMatch.CommonSuffixLength(right, left));
+            right[^(suffix + 1)] = 0;
+        }
+        Assert.Equal(limit, CopyMatch.CommonSuffixLength(left, right));
+        Assert.Equal(0, CopyMatch.CommonSuffixLength(left, []));
+    }
+
+    [Fact]
     public void MergesSourceCopiesAndRebasesAnOverlappingTargetCopy()
     {
         var source = new byte[32768];

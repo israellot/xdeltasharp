@@ -1,4 +1,7 @@
 using XDeltaSharp.Format;
+#if NET9_0_OR_GREATER
+using System.Runtime.Intrinsics;
+#endif
 
 namespace XDeltaSharp.Decoding;
 
@@ -90,7 +93,25 @@ internal ref struct WindowDecoder
         {
             // At most 5552 bytes between reductions keeps both sums within UInt32.
             int count = Math.Min(5552, bytes.Length);
-            foreach (byte value in bytes[..count])
+            var chunk = bytes[..count];
+#if NET9_0_OR_GREATER
+            // Sixteen serial Adler steps add 16*a plus the bytes weighted from 16 down to 1.
+            if (Vector128.IsHardwareAccelerated && chunk.Length >= 16)
+            {
+                var highWeights = Vector128.CreateSequence((ushort)16, ushort.MaxValue);
+                var lowWeights = Vector128.CreateSequence((ushort)8, ushort.MaxValue);
+                do
+                {
+                    var block = Vector128.Create(chunk);
+                    var low = Vector128.WidenLower(block);
+                    var high = Vector128.WidenUpper(block);
+                    b += 16 * a + Vector128.Dot(low, highWeights) + Vector128.Dot(high, lowWeights);
+                    a += Vector128.Sum(low + high);
+                    chunk = chunk[16..];
+                } while (chunk.Length >= 16);
+            }
+#endif
+            foreach (byte value in chunk)
             {
                 a += value;
                 b += a;

@@ -13,6 +13,7 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests/XDeltaSharp.Tests/Fixtures"
+FRAMEWORKS = ("net8.0", "net9.0", "net10.0", "net11.0")
 # multi.bin from the independent recipe in Fixtures/README.md.
 MULTI_SHA256 = "bdf1101ea6b7190ebc217cd0782b82320298238fe59e2d0c1b49f38b8f9cde73"
 ASSEMBLIES = {
@@ -33,22 +34,25 @@ def check_packages(feed, version):
             manifest = ElementTree.fromstring(package.read(f"{name}.nuspec"))
             if manifest.findtext("{*}metadata/{*}icon") != "icon.png":
                 raise ValueError(f"{name} does not declare icon.png as its package icon")
-            files = {"README.md", "LICENSE", "icon.png", f"lib/net8.0/{assembly}.dll", f"lib/net8.0/{assembly}.xml"}
+            files = {"README.md", "LICENSE", "icon.png"}
+            for framework in FRAMEWORKS:
+                files.update((f"lib/{framework}/{assembly}.dll", f"lib/{framework}/{assembly}.xml"))
             if name == "xdelta":
                 files.add("THIRD-PARTY-NOTICES.txt")
             for member in files:
                 package.getinfo(member)
         with ZipFile(feed / f"{name}.{version}.snupkg") as symbols:
-            symbols.getinfo(f"lib/net8.0/{assembly}.pdb")
+            for framework in FRAMEWORKS:
+                symbols.getinfo(f"lib/{framework}/{assembly}.pdb")
 
 
-def run_example(work, code, packages, version, replacement_core=None):
+def run_example(work, code, packages, version, framework, replacement_core=None):
     references = "".join(f'<PackageReference Include="{name}" Version="[{version}]" />' for name in packages)
     project = work / "Example.csproj"
     project.write_text(f"""<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>{framework}</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>{references}</ItemGroup>
@@ -57,10 +61,10 @@ def run_example(work, code, packages, version, replacement_core=None):
     (work / "Program.cs").write_text(code)
     subprocess.run(["dotnet", "build", project, "-c", "Release",
                     f"-p:RestorePackagesPath={work.parent / 'cache'}"], cwd=ROOT, check=True)
-    output = work / "bin/Release/net8.0"
+    output = work / "bin/Release" / framework
     if replacement_core is not None:
         with ZipFile(replacement_core) as package:
-            (output / "XDeltaSharp.dll").write_bytes(package.read("lib/net8.0/XDeltaSharp.dll"))
+            (output / "XDeltaSharp.dll").write_bytes(package.read(f"lib/{framework}/XDeltaSharp.dll"))
     return subprocess.check_output(["dotnet", output / "Example.dll"], cwd=work, text=True)
 
 
@@ -91,7 +95,7 @@ if (length != target.Length || written != target.Length || !target.AsSpan().Sequ
     || !target.AsSpan().SequenceEqual(output.ToArray())) throw new InvalidDataException();
 Console.WriteLine(Convert.ToHexString(SHA256.HashData(target)));
 """
-        digest = run_example(work, code, ["xdelta.Lzma", "xdelta.Blake3"], "1.0.0", core_package)
+        digest = run_example(work, code, ["xdelta.Lzma", "xdelta.Blake3"], "1.0.0", "net8.0", core_package)
         if digest.strip().lower() != MULTI_SHA256:
             raise ValueError("The published 1.0.0 add-ons reconstructed the wrong target with the new core")
 
@@ -104,8 +108,6 @@ def main():
 
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
-        work = root / "consumer"
-        work.mkdir()
         if args.verify:
             directory, version = args.verify
             feed = Path(directory).resolve()
@@ -132,15 +134,17 @@ def main():
         with ZipFile(feed / f"xdelta.{version}.nupkg") as package:
             readme = package.read("README.md").decode()
         round_trip, apply_file = re.findall(r"^```csharp\n(.*?)^```$", readme, re.MULTILINE | re.DOTALL)
-        shutil.copy(FIXTURES / "source.txt", work / "original.bin")
-        shutil.copy(FIXTURES / "target.txt", work / "updated.bin")
         round_trip += '\nif (!restored.AsSpan().SequenceEqual(updated)) throw new InvalidDataException("Round trip failed.");'
-        run_example(work, round_trip, ["xdelta"], version)
-
-        shutil.copy(FIXTURES / "xdelta3-checksum.vcdiff", work / "update.vcdiff")
-        run_example(work, apply_file, ["xdelta.Lzma", "xdelta.Blake3"], version)
-        if (work / "restored.bin").read_bytes() != (FIXTURES / "target.txt").read_bytes():
-            raise ValueError("The packaged file example reconstructed the wrong target")
+        for framework in FRAMEWORKS:
+            work = root / framework
+            work.mkdir()
+            shutil.copy(FIXTURES / "source.txt", work / "original.bin")
+            shutil.copy(FIXTURES / "target.txt", work / "updated.bin")
+            run_example(work, round_trip, ["xdelta"], version, framework)
+            shutil.copy(FIXTURES / "xdelta3-checksum.vcdiff", work / "update.vcdiff")
+            run_example(work, apply_file, ["xdelta.Lzma", "xdelta.Blake3"], version, framework)
+            if (work / "restored.bin").read_bytes() != (FIXTURES / "target.txt").read_bytes():
+                raise ValueError(f"The {framework} packaged file example reconstructed the wrong target")
         check_published_addons(feed / f"xdelta.{version}.nupkg")
 
 

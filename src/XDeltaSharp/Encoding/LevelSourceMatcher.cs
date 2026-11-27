@@ -85,9 +85,7 @@ internal readonly ref struct LevelSourceMatcher
             BinaryPrimitives.ReadUInt32LittleEndian(tail)) return default;
         int forward = 4 + tail[4..].CommonPrefixLength(reference[4..]);
         if (forward < minimum) return default;
-        int back = 0;
-        int limit = Math.Min(position, probe - pending);
-        while (back < limit && window[probe - back - 1] == _source[position - back - 1]) back++;
+        int back = CopyMatch.CommonSuffixLength(window[pending..probe], _source[..position]);
         return new CopyMatch(position - back, probe - back, forward + back);
     }
 

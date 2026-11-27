@@ -1,5 +1,6 @@
 <Project>
   <Import Project="../Directory.Build.props" />
+  <Import Project="../eng/TargetFrameworks.props" />
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <VersionPrefix>1.0.1</VersionPrefix>

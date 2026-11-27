@@ -127,12 +127,9 @@ internal static class WindowOptimizer
                 bool fromSource = address < source.Length;
                 var dictionary = fromSource ? source : target;
                 int position = fromSource ? address : address - source.Length;
-                while (start > 0 && position > 0 && dictionary[position - 1] == target[start - 1])
-                {
-                    start--;
-                    position--;
-                }
-                address -= op.WriteOffset - start;
+                int back = CopyMatch.CommonSuffixLength(dictionary[..position], target[..start]);
+                start -= back;
+                address -= back;
             }
             ops[--output] = new CopyMatch(address, start, length + op.WriteOffset - start);
             limit = start;
