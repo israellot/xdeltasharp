@@ -101,9 +101,9 @@ public class WindowOptimizerTests
         var target = new byte[size];
         byte[] expected = Vcdiff.Encode([], target);
         var output = new ArrayBufferWriter<byte>();
-        Vcdiff.EncodeOptimized([], target, output);
+        Vcdiff.Encode([], target, output, optimize: true);
         Assert.True(output.WrittenSpan.SequenceEqual(expected));
-        Assert.Equal(expected, Vcdiff.EncodeOptimized([], target));
+        Assert.Equal(expected, Vcdiff.Encode([], target, optimize: true));
     }
 
     [Theory]
@@ -181,12 +181,12 @@ public class WindowOptimizerTests
         var source = "abcdefghabcdefghZYXWVUTS12345678"u8.ToArray();
         byte[] target = [.. source, 1, .. source[..12]];
         var writer = new ArrayBufferWriter<byte>(128);
-        Vcdiff.EncodeOptimized(source, target, writer);
+        Vcdiff.Encode(source, target, writer, optimize: true);
         long first = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100; i++)
         {
             writer.ResetWrittenCount();
-            Vcdiff.EncodeOptimized(source, target, writer);
+            Vcdiff.Encode(source, target, writer, optimize: true);
         }
         long allocated = GC.GetAllocatedBytesForCurrentThread() - first;
         Assert.Equal(0, allocated);
@@ -216,10 +216,10 @@ public class WindowOptimizerTests
                 for (int level = 0; level <= 9; level++)
                 {
                     var original = Vcdiff.Encode(source, target, level, memory);
-                    var optimized = Vcdiff.EncodeOptimized(source, target, level, memory);
+                    var optimized = Vcdiff.Encode(source, target, optimize: true, level, memory);
                     var sink = new ArrayBufferWriter<byte>();
                     sink.Write("start"u8);
-                    Vcdiff.EncodeOptimized(source, target, sink, level, memory);
+                    Vcdiff.Encode(source, target, sink, optimize: true, level, memory);
                     Assert.True(sink.WrittenSpan[..5].SequenceEqual("start"u8));
                     Assert.Equal(optimized, sink.WrittenSpan[5..].ToArray());
                     Verify(source, target, original, optimized);
@@ -243,7 +243,7 @@ public class WindowOptimizerTests
         for (int i = 0; i < target.Length; i++) target[i] = (byte)(i % 5);
         byte[] source = target[..1024];
         byte[] original = Vcdiff.Encode(source, target);
-        byte[] optimized = Vcdiff.EncodeOptimized(source, target);
+        byte[] optimized = Vcdiff.Encode(source, target, optimize: true);
         Verify(source, target, original, optimized);
         using var first = new MemoryStream(original);
         using var second = new MemoryStream(optimized);

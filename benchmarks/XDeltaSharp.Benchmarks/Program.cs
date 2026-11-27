@@ -154,8 +154,7 @@ static void Benchmark(string name, byte[] source, byte[] target)
 
 static void MeasureEncoder(string name, byte[] source, byte[] target, int level, MemoryMode memoryMode, bool optimize = false)
 {
-    byte[] EncodeArray() => optimize ? Vcdiff.EncodeOptimized(source, target, level, memoryMode) :
-        Vcdiff.Encode(source, target, level, memoryMode);
+    byte[] EncodeArray() => Vcdiff.Encode(source, target, optimize, level, memoryMode);
     byte[] reference = EncodeArray();
     if (!Vcdiff.Decode(source, reference).AsSpan().SequenceEqual(target))
         throw new InvalidDataException("Round trip failed.");
@@ -163,8 +162,7 @@ static void MeasureEncoder(string name, byte[] source, byte[] target, int level,
     void EncodeInto()
     {
         writer.ResetWrittenCount();
-        if (optimize) Vcdiff.EncodeOptimized(source, target, writer, level, memoryMode);
-        else Vcdiff.Encode(source, target, writer, level, memoryMode);
+        Vcdiff.Encode(source, target, writer, optimize, level, memoryMode);
     }
 
     EncodeInto();

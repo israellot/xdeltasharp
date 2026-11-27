@@ -68,10 +68,7 @@ public static class Vcdiff
     /// <paramref name="memoryMode"/> is outside its supported range.</exception>
     public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, int compressionLevel,
         MemoryMode memoryMode = MemoryMode.Default)
-    {
-        ValidateMemoryMode(memoryMode);
-        return WindowEncoder.Encode(source, target, compressionLevel, memoryMode);
-    }
+        => Encode(source, target, optimize: false, compressionLevel, memoryMode);
 
     /// <summary>Appends a VCDIFF patch to a buffer writer at the specified compression level.</summary>
     /// <param name="source">Original bytes that the decoder will use as its dictionary. Pass an empty span to encode
@@ -85,49 +82,48 @@ public static class Vcdiff
     /// <paramref name="memoryMode"/> is outside its supported range.</exception>
     public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
         int compressionLevel, MemoryMode memoryMode = MemoryMode.Default)
-    {
-        ArgumentNullException.ThrowIfNull(destination);
-        ValidateMemoryMode(memoryMode);
-        WindowEncoder.Encode(source, target, destination, compressionLevel, memoryMode);
-    }
+        => Encode(source, target, destination, optimize: false, compressionLevel, memoryMode);
 
-    /// <summary>Creates a VCDIFF patch at the specified compression level, refining each window for size.</summary>
+    /// <summary>Creates a VCDIFF patch with optional per-window size optimization.</summary>
     /// <param name="source">Original bytes that the decoder will use as its dictionary. Pass an empty span to encode
     /// without an external dictionary.</param>
     /// <param name="target">New bytes to reconstruct when the patch is applied.</param>
+    /// <param name="optimize">Run an extra pass on each window and use its result only if it is smaller.</param>
     /// <param name="compressionLevel">Search level from 0 through 9, inclusive. The default is level 3.</param>
     /// <param name="memoryMode">Match-index sizing policy. <see cref="MemoryMode.LessMemory"/> uses fewer hash buckets.</param>
     /// <returns>A new byte array containing the complete patch.</returns>
-    /// <remarks>Spends extra encoding time and temporary memory to refine each window. A candidate replaces the
-    /// ordinary encoding only when its complete window is smaller.</remarks>
+    /// <remarks>Enabling optimization uses additional encoding time and temporary memory.</remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="compressionLevel"/> or
     /// <paramref name="memoryMode"/> is outside its supported range.</exception>
-    public static byte[] EncodeOptimized(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target,
-        int compressionLevel = MatcherProfile.DefaultLevel, MemoryMode memoryMode = MemoryMode.Default)
+    [SuppressMessage("ApiDesign", "RS0026", Justification =
+        "The required optimize argument distinguishes this overload from existing level and memory options.")]
+    public static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target,
+        bool optimize, int compressionLevel = MatcherProfile.DefaultLevel, MemoryMode memoryMode = MemoryMode.Default)
     {
         ValidateMemoryMode(memoryMode);
-        return WindowEncoder.Encode(source, target, compressionLevel, memoryMode, optimize: true);
+        return WindowEncoder.Encode(source, target, compressionLevel, memoryMode, optimize);
     }
 
-    /// <summary>Appends a VCDIFF patch to a buffer writer at the specified compression level, refining each window for
-    /// size.</summary>
+    /// <summary>Appends a VCDIFF patch to a buffer writer with optional per-window size optimization.</summary>
     /// <param name="source">Original bytes that the decoder will use as its dictionary. Pass an empty span to encode
     /// without an external dictionary.</param>
     /// <param name="target">New bytes to reconstruct when the patch is applied.</param>
     /// <param name="destination">Writer that receives the header and encoded windows in order.</param>
+    /// <param name="optimize">Run an extra pass on each window and use its result only if it is smaller.</param>
     /// <param name="compressionLevel">Search level from 0 through 9, inclusive. The default is level 3.</param>
     /// <param name="memoryMode">Match-index sizing policy. <see cref="MemoryMode.LessMemory"/> uses fewer hash buckets.</param>
-    /// <remarks>Spends extra encoding time and temporary memory to refine each window. A candidate replaces the
-    /// ordinary encoding only when its complete window is smaller.</remarks>
+    /// <remarks>Enabling optimization uses additional encoding time and temporary memory.</remarks>
     /// <exception cref="ArgumentNullException"><paramref name="destination"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="compressionLevel"/> or
     /// <paramref name="memoryMode"/> is outside its supported range.</exception>
-    public static void EncodeOptimized(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
-        int compressionLevel = MatcherProfile.DefaultLevel, MemoryMode memoryMode = MemoryMode.Default)
+    [SuppressMessage("ApiDesign", "RS0026", Justification =
+        "The required optimize argument distinguishes this overload from existing level and memory options.")]
+    public static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
+        bool optimize, int compressionLevel = MatcherProfile.DefaultLevel, MemoryMode memoryMode = MemoryMode.Default)
     {
         ArgumentNullException.ThrowIfNull(destination);
         ValidateMemoryMode(memoryMode);
-        WindowEncoder.Encode(source, target, destination, compressionLevel, memoryMode, optimize: true);
+        WindowEncoder.Encode(source, target, destination, compressionLevel, memoryMode, optimize);
     }
 
     private static void ValidateMemoryMode(MemoryMode memoryMode)

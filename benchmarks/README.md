@@ -46,11 +46,11 @@ The writer packs adjacent instructions when the default table permits it and cho
 
 ## Optional operation pass
 
-`EncodeOptimized` runs an afterburner on each completed target window. It can extend a COPY or RUN through matching neighboring bytes, absorb redundant operations, and turn a short instruction into literals when that saves bytes. It also trims the source dictionary to the range used by source copies and rebases target-copy addresses.
+With `optimize: true`, the encoder makes an extra pass over each completed target window. It can extend a COPY or RUN through matching neighboring bytes, absorb redundant operations, and turn a short instruction into literals when that saves bytes. It also trims the source dictionary to the range used by source copies and rebases target-copy addresses.
 
 ```csharp
-byte[] patch = Vcdiff.EncodeOptimized(source, target);
-Vcdiff.EncodeOptimized(source, target, destinationWriter, compressionLevel: 9);
+byte[] patch = Vcdiff.Encode(source, target, optimize: true);
+Vcdiff.Encode(source, target, destinationWriter, optimize: true, compressionLevel: 9);
 ```
 
 The pass re-encodes its candidate with fresh address caches and opcode pairing. It compares complete window sizes, including headers and the literal-only fallback. On a tie or a larger candidate, it emits the original bytes. This bounds patch size by the ordinary encode for the same level and memory policy. It uses temporary storage for one window’s operations and spends additional encoding time. The decoder uses the usual VCDIFF format.
