@@ -37,43 +37,7 @@ internal ref struct InstructionBuffer(Span<CopyMatch> scratch)
         int i = 0;
         while (i < stop)
         {
-            var current = _items[i++];
-            while (i < _count && current.End > _items[i].WriteOffset)
-            {
-                var next = _items[i];
-                // Skip the middle match if the following one reaches back to this boundary.
-                if (i + 1 < _count && _items[i + 1].WriteOffset <= current.End + 1)
-                {
-                    i++;
-                    continue;
-                }
-
-                int currentOnlyBytes = next.WriteOffset - current.WriteOffset;
-                int nextOnlyBytes = next.End - current.End;
-                if (currentOnlyBytes < DefaultCodeTable.MinFixedCopySize && nextOnlyBytes < DefaultCodeTable.MinFixedCopySize)
-                {
-                    if (next.Length > current.Length) current = next;
-                    i++;
-                    continue;
-                }
-
-                // Preserve both matches when possible. Keep one size in the default table's
-                // immediate range (4..18) when dividing their overlap.
-                int halfLength = (next.End - current.WriteOffset) / 2;
-                int split = Math.Clamp(current.WriteOffset + Math.Min(DefaultCodeTable.MaxFixedCopySize, halfLength),
-                    next.WriteOffset, current.End);
-                split = Math.Clamp(split, current.WriteOffset + DefaultCodeTable.MinFixedCopySize,
-                    next.End - DefaultCodeTable.MinFixedCopySize);
-                int trim = split - next.WriteOffset;
-                current = current with { Length = split - current.WriteOffset };
-                _items[i] = next with
-                {
-                    WriteOffset = split,
-                    Length = next.Length - trim,
-                    ReadOffset = next.ReadOffset < 0 ? CopyMatch.RunOffset : next.ReadOffset + trim
-                };
-                break;
-            }
+            var current = ResolveOverlaps(_items[i++], ref i);
             if (!final && i == _count)
             {
                 // This last match may still be under lazy evaluation at the current probe.
@@ -82,7 +46,7 @@ internal ref struct InstructionBuffer(Span<CopyMatch> scratch)
                 return;
             }
             writer.Add(target[Written..current.WriteOffset]);
-            if (current.ReadOffset < 0)
+            if (current.IsRun)
                 writer.Run(target[current.WriteOffset], current.Length);
             else
                 writer.Copy(current.ReadOffset, current.Length);
@@ -91,6 +55,54 @@ internal ref struct InstructionBuffer(Span<CopyMatch> scratch)
         _items[i.._count].CopyTo(_items);
         _count -= i;
         if (final) writer.Add(target[Written..]);
+    }
+
+    /// <summary>Settles <paramref name="current"/> against the pending matches it overlaps, starting at
+    /// <paramref name="next"/>, and returns the operation to emit. On return <paramref name="next"/> is the
+    /// first pending match that begins at or after its end.</summary>
+    private CopyMatch ResolveOverlaps(CopyMatch current, ref int next)
+    {
+        while (next < _count && current.End > _items[next].WriteOffset)
+        {
+            var following = _items[next];
+            // Skip the middle match if the one after it reaches back to this boundary.
+            if (next + 1 < _count && _items[next + 1].WriteOffset <= current.End + 1)
+            {
+                next++;
+                continue;
+            }
+
+            int currentOnlyBytes = following.WriteOffset - current.WriteOffset;
+            int followingOnlyBytes = following.End - current.End;
+            if (currentOnlyBytes < DefaultCodeTable.MinFixedCopySize && followingOnlyBytes < DefaultCodeTable.MinFixedCopySize)
+            {
+                if (following.Length > current.Length) current = following;
+                next++;
+                continue;
+            }
+
+            (current, _items[next]) = SplitOverlap(current, following);
+            break;
+        }
+        return current;
+    }
+
+    // Preserve both matches when possible. Keep one size in the default table's
+    // immediate range (4..18) when dividing their overlap.
+    private static (CopyMatch Earlier, CopyMatch Later) SplitOverlap(CopyMatch earlier, CopyMatch later)
+    {
+        int halfLength = (later.End - earlier.WriteOffset) / 2;
+        int split = Math.Clamp(earlier.WriteOffset + Math.Min(DefaultCodeTable.MaxFixedCopySize, halfLength),
+            later.WriteOffset, earlier.End);
+        split = Math.Clamp(split, earlier.WriteOffset + DefaultCodeTable.MinFixedCopySize,
+            later.End - DefaultCodeTable.MinFixedCopySize);
+        int trim = split - later.WriteOffset;
+        return (earlier with { Length = split - earlier.WriteOffset }, later with
+        {
+            WriteOffset = split,
+            Length = later.Length - trim,
+            ReadOffset = later.IsRun ? CopyMatch.RunOffset : later.ReadOffset + trim
+        });
     }
 
     public void Dispose()

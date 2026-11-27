@@ -11,8 +11,11 @@ namespace XDeltaSharp.Blake3;
 /// <summary>Reads xdelta3's target/compressor[/source/compressor] metadata without buffering filenames.</summary>
 internal sealed class ArmorVerifier(bool requireDigests) : IArmorVerifier
 {
+    // A BLAKE3 digest is 32 bytes, written as 64 lowercase hex digits.
+    private const int DigestHexLength = 64;
+
     // .NET 10 can decode hex directly from the ASCII bytes in the header.
-    private readonly HexDigit[] _hex = new HexDigit[64];
+    private readonly HexDigit[] _hex = new HexDigit[DigestHexLength];
     private int _digits = -1;
     private int _field;
     private bool _terminated;
@@ -32,7 +35,7 @@ internal sealed class ArmorVerifier(bool requireDigests) : IArmorVerifier
             }
             if (value == (byte)'/')
             {
-                if (_digits == 64)
+                if (_digits == DigestHexLength)
                 {
                     if (_field == 0) _target = Convert.FromHexString(_hex);
                     if (_field == 2) _source = Convert.FromHexString(_hex);
@@ -49,7 +52,7 @@ internal sealed class ArmorVerifier(bool requireDigests) : IArmorVerifier
                 char digit = (char)value;
                 if (digit == '#')
                     _digits = 0;
-                else if (_digits is >= 0 and < 64 && char.IsAsciiHexDigitLower(digit))
+                else if (_digits is >= 0 and < DigestHexLength && char.IsAsciiHexDigitLower(digit))
                     _hex[_digits++] = (HexDigit)value;
                 else
                     _digits = -1;

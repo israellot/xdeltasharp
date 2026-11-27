@@ -9,6 +9,12 @@ internal static class WireInteger
     private const byte DigitMask = 0x7F;
     private const int BitsPerDigit = 7;
 
+    /// <summary>Values below this are written as a single byte.</summary>
+    internal const int FirstTwoByteValue = 1 << BitsPerDigit;
+
+    /// <summary>The most bytes <see cref="Write"/> needs for any non-negative <see cref="int"/>.</summary>
+    internal const int MaxInt32Size = 5;
+
     internal static bool TryAppendDigit(ref long value, byte digit)
     {
         if (value > long.MaxValue >> BitsPerDigit)

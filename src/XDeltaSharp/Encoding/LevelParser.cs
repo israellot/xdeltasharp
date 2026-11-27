@@ -47,12 +47,14 @@ internal static class LevelParser
         scoped ref LevelTargetMatcher history, MatcherProfile profile, int probe, int written, int minimum,
         long sourceBias, bool lazy)
     {
+        // Four equal bytes are compared here before scanning, because most probes are not the start of a run.
+        const int compared = 4;
         var tail = target[probe..];
         if (tail.Length >= MatcherProfile.MinRunLength &&
             tail[0] == tail[1] && tail[0] == tail[2] && tail[0] == tail[3])
         {
-            int firstDifferent = tail[4..].IndexOfAnyExcept(tail[0]);
-            int length = firstDifferent < 0 ? tail.Length : firstDifferent + 4;
+            int firstDifferent = tail[compared..].IndexOfAnyExcept(tail[0]);
+            int length = firstDifferent < 0 ? tail.Length : firstDifferent + compared;
             if (length >= Math.Max(MatcherProfile.MinRunLength, minimum))
                 return new CopyMatch(CopyMatch.RunOffset, probe, length);
         }

@@ -37,6 +37,14 @@ internal sealed class LzmaSections(int maxExpandedSectionBytes, int maxDictionar
     // Each section kind has its own sync-flushed XZ block that continues across windows.
     private sealed class SectionStream : IDisposable
     {
+        // A 12-byte XZ stream header, then a 12-byte block header whose bytes 4 to 7 are the LZMA2
+        // dictionary property and three bytes of padding, and whose last four are its CRC-32.
+        private const int BlockHeaderOffset = 12;
+        private const int DictionaryPropertyOffset = 16;
+        private const int BlockHeaderCrcOffset = 20;
+        private const int XzHeaderSize = 24;
+        private const int InitialOutputSize = 4096;
+
         private readonly MemoryStream _input = new();
         private LzmaStream? _decoder;
         private byte[] _output = [];
@@ -49,7 +57,7 @@ internal sealed class LzmaSections(int maxExpandedSectionBytes, int maxDictionar
                 {
                     byte property = ReadXdeltaHeader(encoded, maxDictionaryBytes);
                     _decoder = LzmaStream.Create([property], _input, leaveOpen: true);
-                    encoded = encoded[24..];
+                    encoded = encoded[XzHeaderSize..];
                 }
 
                 _input.SetLength(0);
@@ -59,7 +67,7 @@ internal sealed class LzmaSections(int maxExpandedSectionBytes, int maxDictionar
                 while (written < length)
                 {
                     if (written == _output.Length)
-                        Array.Resize(ref _output, Math.Min(length, Math.Max(4096, written * 2)));
+                        Array.Resize(ref _output, Math.Min(length, Math.Max(InitialOutputSize, written * 2)));
                     int count = _decoder.Read(_output, written, Math.Min(length, _output.Length) - written);
                     if (count == 0)
                         throw new InvalidDataException("Truncated xdelta3 LZMA section.");
@@ -83,10 +91,12 @@ internal sealed class LzmaSections(int maxExpandedSectionBytes, int maxDictionar
             // The block has no size fields. Only the dictionary property varies by preset.
             ReadOnlySpan<byte> header = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0, 0, 0, 0xFF, 0x12, 0xD9, 0x41,
                 2, 0, 0x21, 1];
-            if (bytes.Length < 24 || !bytes.StartsWith(header) || bytes[17..20].IndexOfAnyExcept((byte)0) >= 0 ||
-                BinaryPrimitives.ReadUInt32LittleEndian(bytes[20..]) != ~Crc32.Update(Crc32.DefaultSeed, bytes[12..20]))
+            if (bytes.Length < XzHeaderSize || !bytes.StartsWith(header) ||
+                bytes[(DictionaryPropertyOffset + 1)..BlockHeaderCrcOffset].IndexOfAnyExcept((byte)0) >= 0 ||
+                BinaryPrimitives.ReadUInt32LittleEndian(bytes[BlockHeaderCrcOffset..]) !=
+                    ~Crc32.Update(Crc32.DefaultSeed, bytes[BlockHeaderOffset..BlockHeaderCrcOffset]))
                 throw new InvalidDataException("Invalid xdelta3 LZMA stream or block header.");
-            byte property = bytes[16];
+            byte property = bytes[DictionaryPropertyOffset];
             // LZMA2 dictionaries alternate between powers of two and 1.5 times those sizes.
             // Property 28 represents 64 MiB, the largest xdelta3 preset.
             if (property > 28 || ((2 | (property & 1)) << (11 + (property >> 1))) > maxDictionaryBytes)

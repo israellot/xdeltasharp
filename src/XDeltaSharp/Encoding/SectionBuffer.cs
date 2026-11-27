@@ -28,12 +28,12 @@ internal ref struct SectionBuffer(Span<byte> scratch)
 
     internal void Integer(int value)
     {
-        if (value < 128)
+        if (value < WireInteger.FirstTwoByteValue)
         {
             Add((byte)value);
             return;
         }
-        if (_buffer.Length - Length < 5) Grow(5);
+        if (_buffer.Length - Length < WireInteger.MaxInt32Size) Grow(WireInteger.MaxInt32Size);
         Length += WireInteger.Write(_buffer[Length..], value);
     }
 

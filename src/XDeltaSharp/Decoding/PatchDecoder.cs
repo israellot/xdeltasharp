@@ -75,46 +75,17 @@ internal static partial class PatchDecoder
         ArgumentNullException.ThrowIfNull(destination);
         ValidateStreams(source, patch, destination);
 
+        // A source that cannot seek can still be passed for a patch that never copies from it.
         bool canReadSource = source.CanRead && source.CanSeek;
         long sourceStart = canReadSource ? source.Position : 0;
         long sourceLength = canReadSource ? Math.Max(0, source.Length - sourceStart) : -1;
-        long outputStart = destination.CanSeek ? destination.Position : 0;
-        bool canReadPriorTarget = destination.CanRead && destination.CanSeek;
-        long limit = Math.Min(limits.MaxOutputBytes, long.MaxValue - outputStart);
         var reader = new WindowReader(patch, limits.MaxWindowBytes, limits.MaxEncodedWindowBytes, secondaryFactory != null, armor);
-        AddressCache? cache = null;
         ISecondaryDecoder? secondary = null;
-        byte[] buffer = [];
-        Span<byte> page = source is FileStream || destination is FileStream ? stackalloc byte[WindowDictionary.PageSize] : [];
-        long written = 0;
         try
         {
             armor?.VerifySource(source);
-            using var targetHash = armor?.StartTargetHash();
-            while (reader.TryReadWindow(sourceLength, canReadPriorTarget ? written : -1, limit - written, out var window))
-            {
-                if (buffer.Length < window.TargetLength)
-                    buffer = new byte[window.TargetLength];
-                var target = buffer.AsSpan(0, window.TargetLength);
-                var dictionary = window.UsePriorTarget
-                    ? new WindowDictionary(destination, outputStart + window.SegmentOffset, window.SegmentLength, page)
-                    : new WindowDictionary(source, sourceStart + window.SegmentOffset, window.SegmentLength, page);
-                var decoder = new WindowDecoder(window, dictionary, target, secondaryFactory, ref secondary);
-                try
-                {
-                    decoder.Decode(ref cache);
-                }
-                finally
-                {
-                    if (window.UsePriorTarget)
-                        destination.Position = outputStart + written;
-                }
-                targetHash?.TransformBlock(buffer, 0, target.Length, null, 0);
-                destination.Write(target);
-                written += target.Length;
-            }
-            if (targetHash != null)
-                armor!.FinishTargetHash(targetHash);
+            return DecodeWindows(ref reader, source, sourceStart, sourceLength, destination, limits.MaxOutputBytes,
+                secondaryFactory, ref secondary, armor);
         }
         finally
         {
@@ -128,6 +99,47 @@ internal static partial class PatchDecoder
                 secondary?.Dispose();
             }
         }
+    }
+
+    /// <summary>Decodes each window into one reused buffer and appends it to <paramref name="destination"/>.
+    /// A <paramref name="sourceLength"/> of -1 means the source cannot be read.</summary>
+    private static long DecodeWindows(ref WindowReader reader, Stream source, long sourceStart, long sourceLength,
+        Stream destination, long maxOutputBytes, SecondaryDecoderFactory? secondaryFactory,
+        ref ISecondaryDecoder? secondary, IArmorVerifier? armor)
+    {
+        long outputStart = destination.CanSeek ? destination.Position : 0;
+        bool canReadPriorTarget = destination.CanRead && destination.CanSeek;
+        long limit = Math.Min(maxOutputBytes, long.MaxValue - outputStart);
+        AddressCache? cache = null;
+        byte[] buffer = [];
+        Span<byte> page = source is FileStream || destination is FileStream ? stackalloc byte[WindowDictionary.PageSize] : [];
+        long written = 0;
+        using var targetHash = armor?.StartTargetHash();
+        while (reader.TryReadWindow(sourceLength, canReadPriorTarget ? written : -1, limit - written, out var window))
+        {
+            if (buffer.Length < window.TargetLength)
+                buffer = new byte[window.TargetLength];
+            var target = buffer.AsSpan(0, window.TargetLength);
+            var dictionary = window.UsePriorTarget
+                ? new WindowDictionary(destination, outputStart + window.SegmentOffset, window.SegmentLength, page)
+                : new WindowDictionary(source, sourceStart + window.SegmentOffset, window.SegmentLength, page);
+            var decoder = new WindowDecoder(window, dictionary, target, secondaryFactory, ref secondary);
+            try
+            {
+                decoder.Decode(ref cache);
+            }
+            finally
+            {
+                // Copying from earlier output moved the destination. Put it back at the end to append.
+                if (window.UsePriorTarget)
+                    destination.Position = outputStart + written;
+            }
+            targetHash?.TransformBlock(buffer, 0, target.Length, null, 0);
+            destination.Write(target);
+            written += target.Length;
+        }
+        if (targetHash != null)
+            armor!.FinishTargetHash(targetHash);
         return written;
     }
 

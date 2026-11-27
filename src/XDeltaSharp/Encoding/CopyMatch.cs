@@ -26,10 +26,10 @@ internal readonly record struct CopyMatch(int ReadOffset, int WriteOffset, int L
             if (left[^1] != right[^1]) return 0;
             do
             {
-                var a = Vector128.Create(left.Slice(left.Length - matched - 16, 16));
-                var b = Vector128.Create(right.Slice(right.Length - matched - 16, 16));
-                if (!Vector128.EqualsAll(a, b))
-                    return matched + Vector128.IndexOf(Vector128.Reverse(Vector128.Equals(a, b)), (byte)0);
+                var leftBlock = Vector128.Create(left.Slice(left.Length - matched - 16, 16));
+                var rightBlock = Vector128.Create(right.Slice(right.Length - matched - 16, 16));
+                if (!Vector128.EqualsAll(leftBlock, rightBlock))
+                    return matched + Vector128.IndexOf(Vector128.Reverse(Vector128.Equals(leftBlock, rightBlock)), (byte)0);
                 matched += 16;
             } while (limit - matched >= 16);
         }

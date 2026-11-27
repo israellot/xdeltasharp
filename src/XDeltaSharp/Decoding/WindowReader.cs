@@ -5,6 +5,9 @@ namespace XDeltaSharp.Decoding;
 /// <summary>Reads the same file and window framing from contiguous memory or a sequential stream.</summary>
 internal ref struct WindowReader
 {
+    private const int ApplicationHeaderChunkSize = 1024;
+    private const int InitialSectionBufferSize = 4096;
+
     private ReadOnlySpan<byte> _remaining;
     private readonly Stream? _stream;
     private readonly IArmorVerifier? _armor;
@@ -114,7 +117,7 @@ internal ref struct WindowReader
             return;
         }
 
-        Span<byte> scratch = stackalloc byte[1024];
+        Span<byte> scratch = stackalloc byte[ApplicationHeaderChunkSize];
         while (length > 0)
         {
             int count = _stream.Read(scratch[..(int)Math.Min(length, scratch.Length)]);
@@ -139,21 +142,7 @@ internal ref struct WindowReader
         long segmentLength = 0;
         long segmentOffset = 0;
         if (dictionaryFlags != WindowFlags.None)
-        {
-            if (dictionaryFlags == WindowFlags.Source)
-                _armor?.ValidateHeader(usesSource: true);
-            segmentLength = ReadInteger();
-            segmentOffset = ReadInteger();
-            long available = usePriorTarget ? previousTargetLength : sourceLength;
-            if (available < 0)
-            {
-                throw new NotSupportedException(usePriorTarget
-                    ? "Prior-target dictionaries require a readable, seekable destination."
-                    : "Source dictionaries require a readable, seekable source.");
-            }
-            if (segmentLength > available || segmentOffset > available - segmentLength)
-                throw new InvalidDataException("VCDIFF dictionary segment is outside the available data.");
-        }
+            (segmentLength, segmentOffset) = ReadSegment(usePriorTarget, usePriorTarget ? previousTargetLength : sourceLength);
 
         long deltaLength = ReadInteger();
         _headerBytes = 0;
@@ -175,6 +164,7 @@ internal ref struct WindowReader
         uint? checksum = null;
         if ((flags & WindowFlags.Adler32) != 0)
         {
+            // Big-endian. Read inline: as a separate method this made small decodes measurably slower.
             uint value = 0;
             for (int i = 0; i < sizeof(uint); i++)
                 value = (value << 8) | ReadByte();
@@ -190,6 +180,25 @@ internal ref struct WindowReader
         window = new Window(usePriorTarget, segmentOffset, segmentLength, (int)targetLength, checksum, compressedSections,
             payload[..dataLength], payload.Slice(dataLength, instructionLength), payload[(dataLength + instructionLength)..]);
         return true;
+    }
+
+    /// <summary>Reads the dictionary segment a window copies from and checks that it lies inside the
+    /// <paramref name="available"/> bytes. A negative count means that data cannot be read at all.</summary>
+    private (long Length, long Offset) ReadSegment(bool usePriorTarget, long available)
+    {
+        if (!usePriorTarget)
+            _armor?.ValidateHeader(usesSource: true);
+        long length = ReadInteger();
+        long offset = ReadInteger();
+        if (available < 0)
+        {
+            throw new NotSupportedException(usePriorTarget
+                ? "Prior-target dictionaries require a readable, seekable destination."
+                : "Source dictionaries require a readable, seekable source.");
+        }
+        if (length > available || offset > available - length)
+            throw new InvalidDataException("VCDIFF dictionary segment is outside the available data.");
+        return (length, offset);
     }
 
     private ReadOnlySpan<byte> ReadPayload(int length)
@@ -208,7 +217,7 @@ internal ref struct WindowReader
         while (used < length)
         {
             if (used == _sectionBuffer.Length)
-                Array.Resize(ref _sectionBuffer, (int)Math.Min(length, Math.Max(4096L, 2L * used)));
+                Array.Resize(ref _sectionBuffer, (int)Math.Min(length, Math.Max(InitialSectionBufferSize, 2L * used)));
             int count = _stream.Read(_sectionBuffer.AsSpan(used, Math.Min(_sectionBuffer.Length, length) - used));
             if (count == 0)
                 throw new InvalidDataException("Truncated VCDIFF window.");

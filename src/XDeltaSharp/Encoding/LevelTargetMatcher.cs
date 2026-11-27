@@ -11,10 +11,12 @@ internal ref struct LevelTargetMatcher(ReadOnlySpan<byte> window, MatcherProfile
     private MatchIndex _index;
     private int _ringMask;
     private const int MaxLinks = 1 << 18;
+    private const int StartsPerBucket = 4;
 
     private static int Links(int starts, MatcherProfile profile) => profile.TargetCandidates <= 1 ? 0 :
         Math.Min(MaxLinks, (int)BitOperations.RoundUpToPowerOf2((uint)starts));
-    private static int Buckets(int starts, MemoryMode memory) => MatchIndex.Buckets((starts + 3) / 4, memory);
+    private static int Buckets(int starts, MemoryMode memory)
+        => MatchIndex.Buckets((starts + StartsPerBucket - 1) / StartsPerBucket, memory);
 
     internal static int ScratchSize(int length, MatcherProfile profile, MemoryMode memory)
     {
@@ -25,19 +27,10 @@ internal ref struct LevelTargetMatcher(ReadOnlySpan<byte> window, MatcherProfile
 
     internal CopyMatch FindAndInsert(int probe, int minimum, bool lazy)
     {
-        if (_index.BucketCount == 0)
-        {
-            int starts = _window.Length - (MatcherProfile.TargetSeed - 1);
-            int links = Links(starts, profile);
-            _ringMask = links - 1;
-            _index = new MatchIndex(starts, Buckets(starts, memory), _scratch, links);
-        }
+        if (_index.BucketCount == 0) CreateIndex();
         var tail = _window[probe..];
         uint seed = BinaryPrimitives.ReadUInt32LittleEndian(tail);
-        // Knuth's multiplicative hash: 2^32 divided by the golden ratio, keeping the high bits.
-        const uint GoldenRatioMultiplier = 2654435761u;
-        int bucket = (int)(unchecked(seed * GoldenRatioMultiplier) >> (32 - BitOperations.Log2((uint)_index.BucketCount)))
-            & (_index.BucketCount - 1);
+        int bucket = Bucket(seed);
         int head = _index[bucket];
         int entry = head;
         CopyMatch best = default;
@@ -65,6 +58,23 @@ internal ref struct LevelTargetMatcher(ReadOnlySpan<byte> window, MatcherProfile
         if (_ringMask >= 0) _index[_index.BucketCount + (probe & _ringMask)] = head;
         _index[bucket] = probe + 1;
         return best;
+    }
+
+    // The index is built on the first probe, so a window matched entirely from the source never pays for it.
+    private void CreateIndex()
+    {
+        int starts = _window.Length - (MatcherProfile.TargetSeed - 1);
+        int links = Links(starts, profile);
+        _ringMask = links - 1;
+        _index = new MatchIndex(starts, Buckets(starts, memory), _scratch, links);
+    }
+
+    private readonly int Bucket(uint seed)
+    {
+        // Knuth's multiplicative hash: 2^32 divided by the golden ratio, keeping the high bits.
+        const uint GoldenRatioMultiplier = 2654435761u;
+        return (int)(unchecked(seed * GoldenRatioMultiplier) >> (32 - BitOperations.Log2((uint)_index.BucketCount)))
+            & (_index.BucketCount - 1);
     }
 
     public void Dispose() => _index.Dispose();

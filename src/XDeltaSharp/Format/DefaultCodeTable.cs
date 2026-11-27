@@ -11,6 +11,15 @@ internal static class DefaultCodeTable
     internal const int MinFixedCopySize = 4;
     internal const int MaxFixedCopySize = 18;
 
+    // Paired opcodes combine an ADD of 1 to 4 bytes with a short COPY. Section 5.6 assigns 163-234 to
+    // ADD+COPY with SELF, HERE and NEAR, 235-246 to ADD+COPY with SAME, and 247-255 to COPY+ADD.
+    internal const int MaxPairedAddSize = 4;
+    private const int MaxPairedCopySize = 6;
+    private const int PairedCopySizes = MaxPairedCopySize - MinFixedCopySize + 1;
+    private const int FirstAddCopyOpcode = 163;
+    private const int FirstAddSameCopyOpcode = 235;
+    private const int FirstCopyAddOpcode = 247;
+
     private static readonly (Instruction First, Instruction Second)[] Entries = Build();
 
     internal static (Instruction First, Instruction Second) Lookup(byte opcode) => Entries[opcode];
@@ -30,26 +39,26 @@ internal static class DefaultCodeTable
 
     internal static bool TryPair(byte first, byte second, out byte opcode)
     {
-        // RFC 3284 §5.6 assigns 163–234 to ADD+COPY with SELF/HERE/NEAR,
-        // 235–246 to ADD+COPY with SAME, and 247–255 to COPY+ADD in any mode.
-        var a = Entries[first].First;
-        var b = Entries[second].First;
-        if (a.Kind == InstructionKind.Add && a.Size is >= 1 and <= 4 && b.Kind == InstructionKind.Copy)
+        var left = Entries[first].First;
+        var right = Entries[second].First;
+        if (left.Kind == InstructionKind.Add && left.Size is >= 1 and <= MaxPairedAddSize && right.Kind == InstructionKind.Copy)
         {
-            if (b.Mode < AddressCache.FirstSameMode && b.Size is >= 4 and <= 6)
+            if (right.Mode < AddressCache.FirstSameMode && right.Size is >= MinFixedCopySize and <= MaxPairedCopySize)
             {
-                opcode = (byte)(163 + b.Mode * 12 + (a.Size - 1) * 3 + b.Size - 4);
+                opcode = (byte)(FirstAddCopyOpcode + right.Mode * MaxPairedAddSize * PairedCopySizes
+                    + (left.Size - 1) * PairedCopySizes + right.Size - MinFixedCopySize);
                 return true;
             }
-            if (b.Mode >= AddressCache.FirstSameMode && b.Size == 4)
+            if (right.Mode >= AddressCache.FirstSameMode && right.Size == MinFixedCopySize)
             {
-                opcode = (byte)(235 + (b.Mode - AddressCache.FirstSameMode) * 4 + a.Size - 1);
+                opcode = (byte)(FirstAddSameCopyOpcode + (right.Mode - AddressCache.FirstSameMode) * MaxPairedAddSize
+                    + left.Size - 1);
                 return true;
             }
         }
-        if (a.Kind == InstructionKind.Copy && a.Size == 4 && b.Kind == InstructionKind.Add && b.Size == 1)
+        if (left.Kind == InstructionKind.Copy && left.Size == MinFixedCopySize && right.Kind == InstructionKind.Add && right.Size == 1)
         {
-            opcode = (byte)(247 + a.Mode);
+            opcode = (byte)(FirstCopyAddOpcode + left.Mode);
             return true;
         }
         opcode = 0;
@@ -73,14 +82,14 @@ internal static class DefaultCodeTable
 
         for (byte mode = 0; mode < AddressCache.ModeCount; mode++)
         {
-            int maxCopySize = mode < AddressCache.FirstSameMode ? 6 : 4;
-            for (byte add = 1; add <= 4; add++)
-                for (byte copy = 4; copy <= maxCopySize; copy++)
+            int maxCopySize = mode < AddressCache.FirstSameMode ? MaxPairedCopySize : MinFixedCopySize;
+            for (byte add = 1; add <= MaxPairedAddSize; add++)
+                for (byte copy = MinFixedCopySize; copy <= maxCopySize; copy++)
                     table[opcode++] = (new(InstructionKind.Add, add), new(InstructionKind.Copy, copy, mode));
         }
 
         for (byte mode = 0; mode < AddressCache.ModeCount; mode++)
-            table[opcode++] = (new(InstructionKind.Copy, 4, mode), new(InstructionKind.Add, 1));
+            table[opcode++] = (new(InstructionKind.Copy, MinFixedCopySize, mode), new(InstructionKind.Add, 1));
 
         return table;
     }
