@@ -11,7 +11,7 @@ int benchmark_encode(const uint8_t *source, usize_t source_size,
     xd3_source dictionary = {0};
     config.flags = level == 0 ? XD3_NOCOMPRESS : level << XD3_COMPLEVEL_SHIFT;
     config.smatch_cfg = level == 0 ? XD3_SMATCH_FASTEST : XD3_SMATCH_DEFAULT;
-    config.winsize = XD3_DEFAULT_WINSIZE;
+    config.winsize = target_size < XD3_DEFAULT_WINSIZE ? target_size : XD3_DEFAULT_WINSIZE;
     config.sprevsz = XD3_DEFAULT_SPREVSZ;
     config.iopt_size = XD3_DEFAULT_IOPT_SIZE;
 

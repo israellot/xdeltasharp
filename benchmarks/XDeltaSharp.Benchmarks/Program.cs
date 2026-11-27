@@ -11,9 +11,9 @@ if (args is ["--decode"])
     DecoderBenchmarks.Run();
     return;
 }
-if (args is ["--compare-xdelta3", var comparisonSource, var comparisonTarget])
+if (args is ["--compare-xdelta3", var comparisonSource, var comparisonTarget, var cliPatches])
 {
-    Xdelta3Comparison.Run(File.ReadAllBytes(comparisonSource), File.ReadAllBytes(comparisonTarget));
+    Xdelta3Comparison.Run(File.ReadAllBytes(comparisonSource), File.ReadAllBytes(comparisonTarget), cliPatches);
     return;
 }
 if (args is ["--profile-default", var sourcePath, var targetPath])
@@ -50,7 +50,7 @@ if (args is ["--afterburner", var originalFile, var targetFile])
     return;
 }
 if (args.Length != 0 && (args.Length != 2 || args[0].StartsWith("--", StringComparison.Ordinal)))
-    throw new ArgumentException("Pass a source and target pair, --decode, --short-search, or --levels, --compare-xdelta3, --afterburner, or --profile-default followed by the pair.");
+    throw new ArgumentException("Pass a source and target pair, --decode, --short-search, --compare-xdelta3 <source> <target> <cli-patch-dir>, or --levels, --afterburner, or --profile-default followed by the pair.");
 
 Console.WriteLine(encoderHeader);
 foreach (int size in new[] { 0, 4, 8, 16, 32, 64, 256, 2047, 2048, 524287, 524288 })

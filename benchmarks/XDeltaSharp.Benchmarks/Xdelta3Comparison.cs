@@ -5,7 +5,7 @@ namespace XDeltaSharp.Benchmarks;
 
 internal static class Xdelta3Comparison
 {
-    internal static void Run(byte[] source, byte[] target)
+    internal static void Run(byte[] source, byte[] target, string cliPatches)
     {
         Console.WriteLine("Operation,Level,Patch encoder,Library,Patch bytes,Median ms");
         byte[] nativeBuffer = new byte[checked(target.Length * 2 + 1024)];
@@ -33,6 +33,8 @@ internal static class Xdelta3Comparison
                 throw new InvalidDataException("Managed writer output differs from the array API.");
             double nativeMs = Measure(EncodeNative);
             byte[] nativePatch = nativeBuffer[..patchLength];
+            if (!nativePatch.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(cliPatches, $"{level}.vcdiff"))))
+                throw new InvalidDataException($"Native level-{level} output differs from the xdelta3 CLI.");
             Report("encode", level, "XDeltaSharp", "XDeltaSharp", expected.Length, managedMs);
             Report("encode", level, "xdelta3", "xdelta3", nativePatch.Length, nativeMs);
             CompareDecoders("XDeltaSharp", expected);

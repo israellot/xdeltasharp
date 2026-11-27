@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-15, macos-15-intel, ubuntu-24.04]
+        runner: [macos-15, macos-15-intel, ubuntu-24.04, ubuntu-22.04]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     env:
@@ -63,9 +63,13 @@ jobs:
           data=corpus/src/Benchmarks/Data
           dotnet build "$project" -c Release
           cmake -S benchmarks/native -B native-build -DCMAKE_BUILD_TYPE=Release -DXDELTA_SOURCE="$PWD/xdelta"
-          cmake --build native-build --target xdelta_benchmark
+          cmake --build native-build --target xdelta_benchmark xdelta3
           cp native-build/libxdelta_benchmark.* "$project/bin/Release/net8.0/"
-          dotnet run --no-build -c Release --project "$project" -- --compare-xdelta3 "$data/pg15.txt" "$data/pg2701.txt" | tee results/comparison.csv
+          mkdir cli-patches
+          for level in {0..9}; do
+            native-build/upstream/xdelta3 -e "-$level" -S none -A -n -s "$data/pg15.txt" "$data/pg2701.txt" "cli-patches/$level.vcdiff"
+          done
+          dotnet run --no-build -c Release --project "$project" -- --compare-xdelta3 "$data/pg15.txt" "$data/pg2701.txt" cli-patches | tee results/comparison.csv
         shell: bash
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
