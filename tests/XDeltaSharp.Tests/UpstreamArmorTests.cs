@@ -22,8 +22,7 @@ public class UpstreamArmorTests
         // End windows inside BLAKE3's 1024-byte chunks. Encode each window as a single ADD.
         byte[] windows = target.Chunk(769).SelectMany(data =>
             Window(data.Length, data, [1, .. Integer(data.Length)], [])).ToArray();
-        byte[] header = System.Text.Encoding.ASCII.GetBytes($"target#{digest}/");
-        byte[] patch = [0xd6, 0xc3, 0xc4, 0, 4, .. Integer(header.Length), .. header, .. windows];
+        byte[] patch = PatchWithApplicationHeader(System.Text.Encoding.ASCII.GetBytes($"target#{digest}/"), windows);
         using var input = new MemoryStream(patch);
         using var output = new MemoryStream();
         Assert.Equal(length, Vcdiff.Decode(Stream.Null, input, output, new VcdiffDecodeOptions { Armor = Blake3Armor.Verify }));

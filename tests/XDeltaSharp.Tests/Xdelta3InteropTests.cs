@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Xunit;
+using static XDeltaSharp.Tests.WindowVectors;
 
 namespace XDeltaSharp.Tests;
 
@@ -18,9 +19,8 @@ public class Xdelta3InteropTests
     [Trait("Category", "Interop")]
     public void Xdelta3AppliesPatchesAtEveryCompressionLevel()
     {
-        string fixtures = Path.Combine(AppContext.BaseDirectory, "Fixtures");
-        byte[] source = File.ReadAllBytes(Path.Combine(fixtures, "source.txt"));
-        byte[] target = [.. File.ReadAllBytes(Path.Combine(fixtures, "target.txt")), .. new byte[128]];
+        byte[] source = Fixture("source.txt");
+        byte[] target = [.. Fixture("target.txt"), .. new byte[128]];
         for (int level = 0; level <= 9; level++)
         {
             foreach (bool optimize in new[] { false, true })

@@ -4,8 +4,21 @@ namespace XDeltaSharp.Tests;
 
 internal static class WindowVectors
 {
+    // The VCDIFF magic bytes and format version 0. The file header's flag byte follows.
+    private static ReadOnlySpan<byte> Signature => [0xD6, 0xC3, 0xC4, 0];
+
     internal static byte[] Patch(params byte[][] windows)
-        => [0xD6, 0xC3, 0xC4, 0, 0, .. windows.SelectMany(window => window)];
+        => [.. Signature, 0, .. windows.SelectMany(window => window)];
+
+    /// <summary>A patch whose file header declares LZMA, compressor ID 2, for its sections.</summary>
+    internal static byte[] LzmaPatch(params byte[][] windows)
+        => [.. Signature, 1, 2, .. windows.SelectMany(window => window)];
+
+    internal static byte[] PatchWithApplicationHeader(byte[] header, params byte[][] windows)
+        => [.. Signature, 4, .. Integer(header.Length), .. header, .. windows.SelectMany(window => window)];
+
+    internal static byte[] Fixture(string name)
+        => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
 
     internal static byte[] Integer(long value)
     {

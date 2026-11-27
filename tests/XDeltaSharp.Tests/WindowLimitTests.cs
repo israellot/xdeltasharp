@@ -139,7 +139,7 @@ public class WindowLimitTests
         byte[] patch = Patch(Window(6, "ABCDEF"u8.ToArray(), [7], []), Window(4, [], [20], [0], 2, 4, 1));
         using var output = new MemoryStream();
         output.Write("prefix"u8);
-        using var input = new ShortReadPatch(patch);
+        using var input = new ShortReadStream(patch, maxRead: 2);
         Assert.Equal(10, Vcdiff.Decode(Stream.Null, input, output));
         Assert.Equal("prefixABCDEFBCDE"u8.ToArray(), output.ToArray());
         Assert.Equal(output.Length, output.Position);
@@ -229,17 +229,11 @@ public class WindowLimitTests
     {
         byte[] metadata = new byte[4097];
         new Random(7).NextBytes(metadata);
-        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 4, .. Integer(metadata.Length), .. metadata, .. Run(8)];
-        using var input = new ShortReadPatch(patch);
+        byte[] patch = PatchWithApplicationHeader(metadata, Run(8));
+        using var input = new ShortReadStream(patch, maxRead: 2);
         using var sink = new CheckingSink();
         Assert.Equal(8, Vcdiff.Decode(Stream.Null, input, sink));
         Assert.Equal(8, sink.VerifiedBytes);
-    }
-
-    private sealed class ShortReadPatch(byte[] bytes) : MemoryStream(bytes)
-    {
-        public override bool CanSeek => false;
-        public override int Read(Span<byte> buffer) => base.Read(buffer[..Math.Min(2, buffer.Length)]);
     }
 
     private sealed class CountingFile(string path)

@@ -17,13 +17,15 @@ public class DecoderTests
     {
         byte[] bytes = new byte[length];
         new Random(37).NextBytes(bytes);
-        uint a = 1, b = 0;
+        // The reference definition from RFC 1950, reduced after every byte.
+        const uint modulus = 65521;
+        uint sum = 1, sumOfSums = 0;
         foreach (byte value in bytes)
         {
-            a = (a + value) % 65521;
-            b = (b + a) % 65521;
+            sum = (sum + value) % modulus;
+            sumOfSums = (sumOfSums + sum) % modulus;
         }
-        byte[] patch = Patch(Window(length, bytes, [1, .. Integer(length)], [], checksum: (b << 16) | a));
+        byte[] patch = Patch(Window(length, bytes, [1, .. Integer(length)], [], checksum: (sumOfSums << 16) | sum));
         AssertDecodes([], patch, bytes);
     }
 
@@ -33,18 +35,15 @@ public class DecoderTests
     [InlineData("open-vcdiff")]
     public void DecodesIndependentEncoderFixture(string encoder)
     {
-        string dir = Path.Combine(AppContext.BaseDirectory, "Fixtures");
-        AssertDecodes(File.ReadAllBytes(Path.Combine(dir, "source.txt")),
-            File.ReadAllBytes(Path.Combine(dir, encoder + ".vcdiff")), File.ReadAllBytes(Path.Combine(dir, "target.txt")));
+        AssertDecodes(Fixture("source.txt"), Fixture(encoder + ".vcdiff"), Fixture("target.txt"));
     }
 
     [Fact]
     public void RejectsCorruptedXdelta3ChecksumInEveryOverload()
     {
-        string dir = Path.Combine(AppContext.BaseDirectory, "Fixtures");
-        byte[] source = File.ReadAllBytes(Path.Combine(dir, "source.txt"));
-        byte[] patch = File.ReadAllBytes(Path.Combine(dir, "xdelta3-checksum.vcdiff"));
-        byte[] target = File.ReadAllBytes(Path.Combine(dir, "target.txt"));
+        byte[] source = Fixture("source.txt");
+        byte[] patch = Fixture("xdelta3-checksum.vcdiff");
+        byte[] target = Fixture("target.txt");
 
         // The four checksum bytes reported by xdelta3 printhdrs for this fixture.
         int offset = patch.AsSpan().IndexOf(Convert.FromHexString("92F15237"));
@@ -70,7 +69,7 @@ public class DecoderTests
     }
 
     [Fact]
-    public void EmptyFileAndEmptyWindows()
+    public void DecodesAnEmptyPatchAndEmptyWindows()
     {
         AssertDecodes([], Patch(), []);
         AssertDecodes([], Patch(Window(0, [], [], []), Window(0, [], [], [])), []);

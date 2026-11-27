@@ -66,9 +66,9 @@ public class EncodedWindowLimitTests
     [Fact]
     public void AppliesTheBudgetToCompressedBytesAcrossAnArmoredLzmaPatch()
     {
-        string dir = Path.Combine(AppContext.BaseDirectory, "Fixtures");
-        using var source = File.OpenRead(Path.Combine(dir, "source.txt"));
-        using var patch = File.OpenRead(Path.Combine(dir, "xdelta3-lzma.vcdiff"));
+        string fixtures = Path.Combine(AppContext.BaseDirectory, "Fixtures");
+        using var source = File.OpenRead(Path.Combine(fixtures, "source.txt"));
+        using var patch = File.OpenRead(Path.Combine(fixtures, "xdelta3-lzma.vcdiff"));
         using var output = new MemoryStream();
 
         // This patch is less than 1 KiB on the wire and reconstructs three windows over 16 MiB.

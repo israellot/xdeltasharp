@@ -10,13 +10,12 @@ public class LzmaDecoderTests
     private static LzmaDecodeOptions Limits(int sectionBytes, int dictionaryBytes)
         => new() { MaxExpandedSectionBytes = sectionBytes, MaxDictionaryBytes = dictionaryBytes };
 
-    private static byte[] Fixture(string name) =>
-        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
+    // xdelta3's XZ stream and block headers for a 256 KiB LZMA2 dictionary.
+    private static readonly byte[] XzHeader = Convert.FromHexString("FD377A585A000000FF12D941020021010C0000008F98419C");
 
-    // XZ block with a 256 KiB LZMA2 dictionary and one uncompressed chunk.
+    // One uncompressed LZMA2 chunk after the header.
     private static byte[] StoredSection(byte[] bytes) =>
-        [.. Integer(bytes.Length), .. Convert.FromHexString("FD377A585A000000FF12D941020021010C0000008F98419C"),
-            1, 0, (byte)(bytes.Length - 1), .. bytes];
+        [.. Integer(bytes.Length), .. XzHeader, 1, 0, (byte)(bytes.Length - 1), .. bytes];
 
     [Theory]
     [InlineData(false)]
@@ -63,7 +62,7 @@ public class LzmaDecoderTests
     [Theory]
     [InlineData("xdelta3.vcdiff")]
     [InlineData("xdelta3-checksum.vcdiff")]
-    public void OptionalPackageAlsoDecodesPlainSections(string fixture)
+    public void AlsoDecodesUncompressedPatches(string fixture)
     {
         Assert.Equal(Fixture("target.txt"), LzmaVcdiff.Decode(Fixture("source.txt"), Fixture(fixture)));
     }
@@ -82,7 +81,7 @@ public class LzmaDecoderTests
             compressedSection == 2 ? StoredSection(instructions) : instructions,
             compressedSection == 4 ? StoredSection(addresses) : addresses, indicator: 1, segmentLength: 1,
             compressedSections: compressedSection);
-        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 1, 2, .. window];
+        byte[] patch = LzmaPatch(window);
         const int dictionarySize = 256 * 1024;
         byte[] expected = "abcq"u8.ToArray();
         var exact = Limits(sectionBytes: 3, dictionarySize);
@@ -107,7 +106,7 @@ public class LzmaDecoderTests
     public void EmptyRunCanConsumeADataByteBeyondTheTargetLength()
     {
         byte[] window = Window(1, StoredSection("xy"u8.ToArray()), [0, 0, 2], [], compressedSections: 1);
-        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 1, 2, .. window];
+        byte[] patch = LzmaPatch(window);
         Assert.Equal("y"u8.ToArray(),
             LzmaVcdiff.Decode([], patch, new LzmaDecodeOptions { MaxOutputBytes = 1, MaxWindowBytes = 1 }));
     }
@@ -116,7 +115,7 @@ public class LzmaDecoderTests
     public void ZeroSecondaryLimitsAcceptRawSections()
     {
         byte[] window = Window(3, "abc"u8.ToArray(), [4], []);
-        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 1, 2, .. window];
+        byte[] patch = LzmaPatch(window);
         Assert.Equal("abc"u8.ToArray(), LzmaVcdiff.Decode([], patch, Limits(0, 0)));
     }
 
@@ -136,9 +135,8 @@ public class LzmaDecoderTests
     [InlineData(true)]
     public void RawSectionsDecodeIntoASpanWithoutAllocating(bool hasLzmaHeader)
     {
-        byte[] patch = Patch(Window(3, "abc"u8.ToArray(), [4], []));
-        if (hasLzmaHeader)
-            patch = [.. patch.AsSpan(0, 4), 1, 2, .. patch.AsSpan(5)];
+        byte[] window = Window(3, "abc"u8.ToArray(), [4], []);
+        byte[] patch = hasLzmaHeader ? LzmaPatch(window) : Patch(window);
 
         var target = new byte[3];
         var limited = Limits(128, 4096);
@@ -165,10 +163,9 @@ public class LzmaDecoderTests
     [InlineData("04", "010002616263")]     // Less chunk output than declared
     public void RejectsInvalidCompressedSections(string size, string chunk)
     {
-        byte[] header = Convert.FromHexString("FD377A585A000000FF12D941020021010C0000008F98419C");
-        byte[] data = [.. Convert.FromHexString(size), .. header, .. Convert.FromHexString(chunk)];
+        byte[] data = [.. Convert.FromHexString(size), .. XzHeader, .. Convert.FromHexString(chunk)];
         byte[] delta = [3, 1, (byte)data.Length, 1, 0, .. data, 4];
-        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 1, 2, 0, (byte)delta.Length, .. delta];
+        byte[] patch = LzmaPatch([0, (byte)delta.Length, .. delta]);
         Assert.Throws<InvalidDataException>(() => LzmaVcdiff.Decode([], patch));
         Assert.Throws<InvalidDataException>(() => LzmaVcdiff.Decode([], patch, new byte[3]));
         using var output = new MemoryStream();

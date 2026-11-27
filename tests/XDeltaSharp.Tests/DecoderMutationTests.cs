@@ -31,11 +31,10 @@ public class DecoderMutationTests
     [InlineData("lzma-stored")]
     public void PublicDecodersAgreeOnMutatedPatches(string fixture)
     {
-        string fixtures = Path.Combine(AppContext.BaseDirectory, "Fixtures");
-        byte[] source = File.ReadAllBytes(Path.Combine(fixtures, "source.txt"));
+        byte[] source = Fixture("source.txt");
         bool lzma = fixture == "lzma-stored";
-        byte[] seed = lzma ? StoredLzmaPatch() : File.ReadAllBytes(Path.Combine(fixtures, fixture + ".vcdiff"));
-        byte[] expected = lzma ? "abc"u8.ToArray() : File.ReadAllBytes(Path.Combine(fixtures, "target.txt"));
+        byte[] seed = lzma ? StoredLzmaPatch() : Fixture(fixture + ".vcdiff");
+        byte[] expected = lzma ? "abc"u8.ToArray() : Fixture("target.txt");
         byte[] buffer = new byte[Limit];
         Assert.Equal(expected, Check(seed, "original"));
 
@@ -101,6 +100,6 @@ public class DecoderMutationTests
         // xdelta3's XZ block header with a 4 KiB LZMA2 dictionary and one stored chunk.
         byte[] header = Convert.FromHexString("FD377A585A000000FF12D9410200210100000000372797D6");
         byte[] data = [3, .. header, 1, 0, 2, .. "abc"u8];
-        return [0xD6, 0xC3, 0xC4, 0, 1, 2, .. Window(3, data, [4], [], compressedSections: 1)];
+        return LzmaPatch(Window(3, data, [4], [], compressedSections: 1));
     }
 }

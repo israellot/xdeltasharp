@@ -9,7 +9,7 @@ namespace XDeltaSharp.Tests;
 public class WindowWriterTests
 {
     [Fact]
-    public void WriterEmitsAllAddressModesAndPairedOpcodes()
+    public void EmitsAllAddressModesAndPairedOpcodes()
     {
         var writer = new WindowWriter(0, 16388, stackalloc byte[64], stackalloc byte[128],
             stackalloc byte[128], stackalloc int[768]);
@@ -45,7 +45,7 @@ public class WindowWriterTests
     }
 
     [Fact]
-    public void WriterPairsCopyThenAddAndSupportsOverlappingTargetAddresses()
+    public void PairsCopyThenAddAndSupportsOverlappingTargetAddresses()
     {
         var writer = new WindowWriter(0, 0, stackalloc byte[16], stackalloc byte[16], stackalloc byte[16], []);
         try

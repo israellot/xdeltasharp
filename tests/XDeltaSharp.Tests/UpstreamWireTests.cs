@@ -34,24 +34,24 @@ public class UpstreamWireTests
                 writer.Copy(expected[i], 4);
             }
 
-            var inst = new SectionReader(writer.Instructions);
-            Assert.Equal(0, inst.ReadByte()); // RUN opcode
-            Assert.Equal(4, inst.ReadLength());
-            var addr = new SectionReader(writer.Addresses);
+            var instructions = new SectionReader(writer.Instructions);
+            Assert.Equal(0, instructions.ReadByte()); // RUN opcode
+            Assert.Equal(4, instructions.ReadLength());
+            var addresses = new SectionReader(writer.Addresses);
             var cache = new AddressCache();
             var modes = new HashSet<byte>();
             for (int i = 0; i < expected.Length; i++)
             {
-                var (copy, second) = DefaultCodeTable.Lookup(inst.ReadByte());
+                var (copy, second) = DefaultCodeTable.Lookup(instructions.ReadByte());
                 Assert.Equal(InstructionKind.Copy, copy.Kind);
                 Assert.Equal(4, copy.Size);
                 Assert.Equal(InstructionKind.NoOp, second.Kind);
                 modes.Add(copy.Mode);
-                Assert.Equal(expected[i], cache.ReadAddress(copy.Mode, 4L + 4L * i, ref addr));
+                Assert.Equal(expected[i], cache.ReadAddress(copy.Mode, 4L + 4L * i, ref addresses));
             }
             Assert.Equal(9, modes.Count);
-            Assert.True(inst.IsEmpty);
-            Assert.True(addr.IsEmpty);
+            Assert.True(instructions.IsEmpty);
+            Assert.True(addresses.IsEmpty);
         }
         finally { writer.Dispose(); }
     }

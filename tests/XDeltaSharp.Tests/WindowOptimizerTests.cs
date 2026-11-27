@@ -32,7 +32,7 @@ public class WindowOptimizerTests
         var source = new byte[32768];
         new Random(717).NextBytes(source);
         byte[] word = source[20000..20016];
-        byte[] target = Enumerable.Repeat(word, 16).SelectMany(w => w).ToArray();
+        byte[] target = Enumerable.Repeat(word, 16).SelectMany(bytes => bytes).ToArray();
         var writer = new WindowWriter(0, source.Length, stackalloc byte[32], stackalloc byte[32],
             stackalloc byte[32], []);
         try
@@ -56,7 +56,7 @@ public class WindowOptimizerTests
     public void CanOmitAnUnusedDictionaryEvenWhenCopyUsesTargetHistory()
     {
         var source = new byte[32000];
-        byte[] target = Enumerable.Repeat("ABCD"u8.ToArray(), 40).SelectMany(x => x).ToArray();
+        byte[] target = Enumerable.Repeat("ABCD"u8.ToArray(), 40).SelectMany(bytes => bytes).ToArray();
         var writer = new WindowWriter(1000, source.Length, stackalloc byte[32], stackalloc byte[32], stackalloc byte[32], []);
         try
         {
@@ -98,7 +98,7 @@ public class WindowOptimizerTests
     [InlineData(16383)]
     [InlineData(16384)]
     [InlineData(32768)]
-    public void TiesKeepTheOriginalFrame(int size)
+    public void KeepsTheOriginalWindowOnATie(int size)
     {
         var target = new byte[size];
         byte[] expected = Vcdiff.Encode([], target);

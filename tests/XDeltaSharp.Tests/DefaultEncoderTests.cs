@@ -13,7 +13,7 @@ public class DefaultEncoderTests
     [InlineData(3)]
     [InlineData(4)]
     [InlineData(7)]
-    public void DefaultOverloadsEncodeOverlappingTargetCopies(int period)
+    public void EncodesAPeriodicTargetAsOneOverlappingCopy(int period)
     {
         byte[] target = new byte[65536];
         for (int i = 0; i < target.Length; i++) target[i] = (byte)('A' + i % period);
@@ -180,7 +180,7 @@ public class DefaultEncoderTests
     [InlineData(2049)]
     [InlineData(524288)]
     [InlineData(524289)]
-    public void CompactTableBoundariesAndDeterministicSinkOutput(int length)
+    public void ArrayAndWriterAgreeAcrossSourceSizes(int length)
     {
         byte[] source = Bytes(length);
         byte[] target = [.. source.AsSpan(length / 2), 5, 6, 7, .. source.AsSpan(0, length / 2)];

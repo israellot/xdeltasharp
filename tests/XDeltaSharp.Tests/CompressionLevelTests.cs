@@ -19,8 +19,10 @@ public class CompressionLevelTests
     [InlineData(7, 2, 44, 13, 90, 70)]
     [InlineData(8, 2, 44, 13, 90, 70)]
     [InlineData(9, 2, 44, 13, 90, 70)]
-    public void UsesXdeltaCliMatcherProfiles(int level, int step, int chain, int lazyChain, int lazy, int good)
-        => Assert.Equal(new MatcherProfile(step, chain, lazyChain, lazy, good), MatcherProfile.FromLevel(level));
+    public void UsesXdeltaCliMatcherProfiles(int level, int sourceStep, int targetCandidates, int lazyCandidates,
+        int lazyMatchLimit, int targetStopLength)
+        => Assert.Equal(new MatcherProfile(sourceStep, targetCandidates, lazyCandidates, lazyMatchLimit, targetStopLength),
+            MatcherProfile.FromLevel(level));
 
     [Theory]
     [InlineData(MemoryMode.Default)]
@@ -51,9 +53,9 @@ public class CompressionLevelTests
     }
 
     [Fact]
-    public void ZeroUsesSourceAndRunsAndSkipsTargetMatching()
+    public void LevelZeroUsesSourceCopiesAndRunsButNotTargetCopies()
     {
-        byte[] target = Enumerable.Repeat("ABCD"u8.ToArray(), 256).SelectMany(x => x).ToArray();
+        byte[] target = Enumerable.Repeat("ABCD"u8.ToArray(), 256).SelectMany(bytes => bytes).ToArray();
         var literal = Vcdiff.Encode([], target, Level(0));
         Assert.True(literal.Length > target.Length);
         Assert.True(Vcdiff.Encode([], target, Level(1)).Length < 32);

@@ -1,5 +1,6 @@
 using XDeltaSharp.Blake3;
 using Xunit;
+using static XDeltaSharp.Tests.WindowVectors;
 
 namespace XDeltaSharp.Tests;
 
@@ -9,9 +10,6 @@ public class ArmorTests
 
     private static readonly VcdiffDecodeOptions Verify = new() { Armor = Blake3Armor.Verify };
     private static readonly VcdiffDecodeOptions Require = new() { Armor = Blake3Armor.Require };
-
-    private static byte[] Fixture(string name) =>
-        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
 
     [Theory]
     [InlineData("xdelta3-checksum.vcdiff")]
@@ -27,7 +25,7 @@ public class ArmorTests
         using var input = new MemoryStream([42, .. source]) { Position = 1 };
         using var output = new MemoryStream();
         output.WriteByte(123);
-        Assert.Equal(target.Length, Vcdiff.Decode(input, new ShortReadPatch(patch), output, Verify));
+        Assert.Equal(target.Length, Vcdiff.Decode(input, new ShortReadStream(patch, maxRead: 3), output, Verify));
         Assert.Equal(new byte[] { 123 }.Concat(target), output.ToArray());
         Assert.Equal(1, input.Position);
     }
@@ -55,7 +53,7 @@ public class ArmorTests
         using var input = new MemoryStream([0, .. source]) { Position = 1 };
         using var output = new MemoryStream();
         Assert.Contains(error, Assert.Throws<InvalidDataException>(() =>
-            Vcdiff.Decode(input, new ShortReadPatch(patch), output, Verify)).Message);
+            Vcdiff.Decode(input, new ShortReadStream(patch, maxRead: 3), output, Verify)).Message);
         Assert.Equal(1, input.Position);
         Assert.Equal(wrongSource ? [] : target, output.ToArray());
     }
@@ -68,7 +66,7 @@ public class ArmorTests
         Assert.Empty(Vcdiff.Decode([], patch, Require));
         patch[^2] = (byte)'0';
         Assert.Throws<InvalidDataException>(() =>
-            Vcdiff.Decode(Stream.Null, new ShortReadPatch(patch), Stream.Null, Verify));
+            Vcdiff.Decode(Stream.Null, new ShortReadStream(patch, maxRead: 3), Stream.Null, Verify));
     }
 
     [Fact]
@@ -77,7 +75,7 @@ public class ArmorTests
         byte[] source = Fixture("source.txt"), target = Fixture("target.txt"), patch = Fixture("xdelta3-checksum.vcdiff");
         Assert.Equal(target, Vcdiff.Decode(source, patch, Require));
         using var output = new MemoryStream();
-        Assert.Equal(target.Length, Vcdiff.Decode(new MemoryStream(source), new ShortReadPatch(patch), output, Require));
+        Assert.Equal(target.Length, Vcdiff.Decode(new MemoryStream(source), new ShortReadStream(patch, maxRead: 3), output, Require));
         Assert.Equal(target, output.ToArray());
 
         source[0] ^= 1;
@@ -98,7 +96,7 @@ public class ArmorTests
     [InlineData("file#" + EmptyHash + "//source/", "source")]
     public void RequiredArmorRejectsMissingDigestsAcrossOutputTypes(string? metadata, string missing)
     {
-        byte[] patch = metadata == null ? WindowVectors.Patch() : WithHeader(metadata);
+        byte[] patch = metadata == null ? Patch() : WithHeader(metadata);
         string expected = $"BLAKE3 {missing} digest";
         Assert.Contains(expected, Assert.Throws<InvalidDataException>(() =>
             Vcdiff.Decode([], patch, Require)).Message);
@@ -106,39 +104,30 @@ public class ArmorTests
             Vcdiff.Decode([], patch, Array.Empty<byte>(), Require)).Message);
         using var output = new MemoryStream();
         Assert.Contains(expected, Assert.Throws<InvalidDataException>(() =>
-            Vcdiff.Decode(Stream.Null, new ShortReadPatch(patch), output, Require)).Message);
+            Vcdiff.Decode(Stream.Null, new ShortReadStream(patch, maxRead: 3), output, Require)).Message);
         Assert.Equal(0, output.Length);
     }
 
     [Fact]
     public void RequiredArmorChecksForSourceDigestWhenAWindowDeclaresASource()
     {
-        byte[] window = WindowVectors.Window(1, [], [19, 1], [0], indicator: 1, segmentLength: 1);
+        byte[] window = Window(1, [], [19, 1], [0], indicator: 1, segmentLength: 1);
         byte[] patch = [.. WithHeader($"target#{EmptyHash}/"), .. window];
         using var output = new MemoryStream();
         Assert.Contains("BLAKE3 source digest", Assert.Throws<InvalidDataException>(() =>
-            Vcdiff.Decode(new MemoryStream([42]), new ShortReadPatch(patch), output, Require)).Message);
+            Vcdiff.Decode(new MemoryStream([42]), new ShortReadStream(patch, maxRead: 3), output, Require)).Message);
         Assert.Equal(0, output.Length);
     }
 
     private static byte[] WithHeader(string metadata)
-    {
-        byte[] header = System.Text.Encoding.ASCII.GetBytes(metadata);
-        return [0xD6, 0xC3, 0xC4, 0, 4, .. WindowVectors.Integer(header.Length), .. header];
-    }
+        => PatchWithApplicationHeader(System.Text.Encoding.ASCII.GetBytes(metadata));
 
     [Fact]
     public void CannotVerifyAnUnseekableArmoredSource()
     {
         using var output = new MemoryStream();
         Assert.Throws<NotSupportedException>(() => Vcdiff.Decode(
-            new ShortReadPatch(Fixture("source.txt")), new ShortReadPatch(Fixture("xdelta3-checksum.vcdiff")), output, Verify));
+            new ShortReadStream(Fixture("source.txt"), maxRead: 3), new ShortReadStream(Fixture("xdelta3-checksum.vcdiff"), maxRead: 3), output, Verify));
         Assert.Equal(0, output.Length);
-    }
-
-    private sealed class ShortReadPatch(byte[] bytes) : MemoryStream(bytes)
-    {
-        public override bool CanSeek => false;
-        public override int Read(Span<byte> buffer) => base.Read(buffer[..Math.Min(3, buffer.Length)]);
     }
 }

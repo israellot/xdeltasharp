@@ -20,8 +20,8 @@ public class UpstreamEncoderTests
         for (int stride = 15; stride <= 100; stride++)
         {
             byte[] target = (byte[])source.Clone();
-            for (int pos = stride; pos < size; pos += stride)
-                target[pos] ^= 0xff;
+            for (int offset = stride; offset < size; offset += stride)
+                target[offset] ^= 0xff;
 
             var stats = EncodeAndInspect(source, target, level);
             int edits = (size - 1) / stride;
@@ -47,10 +47,10 @@ public class UpstreamEncoderTests
             new Random(seed).NextBytes(source);
             byte[] target = (byte[])source.Clone();
             int swapLength = copyFromEnd ? 2048 : source.Length;
-            for (int pos = 0; pos < swapLength; pos += 32)
+            for (int offset = 0; offset < swapLength; offset += 32)
             {
-                source.AsSpan(pos + 16, 16).CopyTo(target.AsSpan(pos));
-                source.AsSpan(pos, 16).CopyTo(target.AsSpan(pos + 16));
+                source.AsSpan(offset + 16, 16).CopyTo(target.AsSpan(offset));
+                source.AsSpan(offset, 16).CopyTo(target.AsSpan(offset + 16));
             }
             if (copyFromEnd)
             {
@@ -111,12 +111,14 @@ public class UpstreamEncoderTests
         Assert.Equal(target.Length, written);
         return (added, sourceCopied);
 
-        void Count(Instruction op, ref SectionReader inst, ref SectionReader addr)
+        // The readers are ref structs, which a local function cannot capture.
+        void Count(Instruction instruction, ref SectionReader sizes, ref SectionReader copyAddresses)
         {
-            int size = op.Size == 0 ? inst.ReadLength() : op.Size;
-            if (op.Kind == InstructionKind.Add)
+            int size = instruction.Size == 0 ? sizes.ReadLength() : instruction.Size;
+            if (instruction.Kind == InstructionKind.Add)
                 added += size;
-            if (op.Kind == InstructionKind.Copy && cache.ReadAddress(op.Mode, dictionarySize + written, ref addr) < dictionarySize)
+            if (instruction.Kind == InstructionKind.Copy &&
+                cache.ReadAddress(instruction.Mode, dictionarySize + written, ref copyAddresses) < dictionarySize)
                 sourceCopied += size;
             written += size;
         }
