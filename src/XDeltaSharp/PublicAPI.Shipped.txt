@@ -19,8 +19,8 @@ static XDeltaSharp.Vcdiff.DecodeWithLimits(System.IO.Stream! source, System.IO.S
 static XDeltaSharp.Vcdiff.Encode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target) -> byte[]!
 static XDeltaSharp.Vcdiff.Encode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target, System.Buffers.IBufferWriter<byte>! destination) -> void
 static XDeltaSharp.Vcdiff.Encode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target, System.Buffers.IBufferWriter<byte>! destination, XDeltaSharp.MemoryMode memoryMode) -> void
+static XDeltaSharp.Vcdiff.Encode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target, System.Buffers.IBufferWriter<byte>! destination, bool optimize, int compressionLevel = 3, XDeltaSharp.MemoryMode memoryMode = XDeltaSharp.MemoryMode.Default) -> void
 static XDeltaSharp.Vcdiff.Encode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target, System.Buffers.IBufferWriter<byte>! destination, int compressionLevel, XDeltaSharp.MemoryMode memoryMode = XDeltaSharp.MemoryMode.Default) -> void
 static XDeltaSharp.Vcdiff.Encode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target, XDeltaSharp.MemoryMode memoryMode) -> byte[]!
+static XDeltaSharp.Vcdiff.Encode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target, bool optimize, int compressionLevel = 3, XDeltaSharp.MemoryMode memoryMode = XDeltaSharp.MemoryMode.Default) -> byte[]!
 static XDeltaSharp.Vcdiff.Encode(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target, int compressionLevel, XDeltaSharp.MemoryMode memoryMode = XDeltaSharp.MemoryMode.Default) -> byte[]!
-static XDeltaSharp.Vcdiff.EncodeOptimized(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target, System.Buffers.IBufferWriter<byte>! destination, int compressionLevel = 3, XDeltaSharp.MemoryMode memoryMode = XDeltaSharp.MemoryMode.Default) -> void
-static XDeltaSharp.Vcdiff.EncodeOptimized(System.ReadOnlySpan<byte> source, System.ReadOnlySpan<byte> target, int compressionLevel = 3, XDeltaSharp.MemoryMode memoryMode = XDeltaSharp.MemoryMode.Default) -> byte[]!
