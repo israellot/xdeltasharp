@@ -79,11 +79,10 @@ Median milliseconds per operation on GitHub-hosted runners, using .NET 8.0.34 an
 | Processor | OS | XDeltaSharp encode | xdelta3 encode | XDeltaSharp decode | xdelta3 decode |
 | --- | --- | ---: | ---: | ---: | ---: |
 | Apple M1 (Arm64) | macOS 15.8.2 | 4.713 | 6.539 | 0.251 | 0.285 |
-| Intel Core i7-8700B (x64) | macOS 15.7.9 | 8.882 | 10.089 | 0.437 | 0.474 |
 | Intel Xeon 6975P-C (x64) | Ubuntu 24.04 | 2.873 | 3.414 | 0.233 | 0.206 |
 | AMD EPYC 7763 (x64) | Ubuntu 22.04 | 3.914 | 4.098 | 0.275 | 0.229 |
 
-XDeltaSharp encoded this update faster on all four hosts. Decode times favored XDeltaSharp on the M1 and Core i7, and xdelta3 on the Xeon and EPYC. [All ten levels and both patch origins (CSV)](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/Results/MobyDick-xdelta3-net8.csv) · [Method and reproduction steps](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md#reproduce-the-readme-comparison) · [Benchmark run](https://github.com/israellot/xdeltasharp/actions/runs/45991937854)
+XDeltaSharp encoded this update faster on all three hosts shown. Decode times favored XDeltaSharp on the M1 and xdelta3 on the Xeon and EPYC. [All ten levels and both patch origins (CSV)](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/Results/MobyDick-xdelta3-net8.csv) · [Method and reproduction steps](https://github.com/israellot/xdeltasharp/blob/master/benchmarks/README.md#reproduce-the-readme-comparison) · [Benchmark run](https://github.com/israellot/xdeltasharp/actions/runs/45991937854)
 
 ## Buffers and decoding limits
 
