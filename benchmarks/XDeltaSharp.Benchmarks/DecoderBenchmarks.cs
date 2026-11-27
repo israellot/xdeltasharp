@@ -6,9 +6,17 @@ namespace XDeltaSharp.Benchmarks;
 
 internal static class DecoderBenchmarks
 {
+    private const string Header = "Case,Source B,Target B,Patch B,API,ns/op,Allocated B/op";
+
+    internal static void RunFile(byte[] source, byte[] target)
+    {
+        Console.WriteLine(Header);
+        MeasureCase("file pair", source, Vcdiff.Encode(source, target), target.Length, SHA256.HashData(target));
+    }
+
     internal static void Run()
     {
-        Console.WriteLine("Case,Source B,Target B,Patch B,API,ns/op,Allocated B/op");
+        Console.WriteLine(Header);
         byte[] literal = "literal"u8.ToArray();
         byte[] literalPatch = Vcdiff.Encode([], literal);
         byte[] literalDigest = SHA256.HashData(literal);

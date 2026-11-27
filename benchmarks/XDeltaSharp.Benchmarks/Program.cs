@@ -11,6 +11,11 @@ if (args is ["--decode"])
     DecoderBenchmarks.Run();
     return;
 }
+if (args is ["--decode-file", var decodeSource, var decodeTarget])
+{
+    DecoderBenchmarks.RunFile(File.ReadAllBytes(decodeSource), File.ReadAllBytes(decodeTarget));
+    return;
+}
 if (args is ["--profile-default", var sourcePath, var targetPath])
 {
     ProfileDefault(File.ReadAllBytes(sourcePath), File.ReadAllBytes(targetPath));
@@ -45,7 +50,7 @@ if (args is ["--afterburner", var originalFile, var targetFile])
     return;
 }
 if (args.Length != 0 && (args.Length != 2 || args[0].StartsWith("--", StringComparison.Ordinal)))
-    throw new ArgumentException("Pass a source and target pair, --decode, --short-search, or --levels, --afterburner, or --profile-default followed by the pair.");
+    throw new ArgumentException("Pass a source and target pair, --decode, --short-search, or --levels, --decode-file, --afterburner, or --profile-default followed by the pair.");
 
 Console.WriteLine(encoderHeader);
 foreach (int size in new[] { 0, 4, 8, 16, 32, 64, 256, 2047, 2048, 524287, 524288 })
