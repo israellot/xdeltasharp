@@ -15,13 +15,13 @@ dotnet add package xdelta
 using System.Text;
 using XDeltaSharp;
 
-var original = Encoding.UTF8.GetBytes("port=8080");
-var updated = Encoding.UTF8.GetBytes("port=8081");
+var original = Encoding.UTF8.GetBytes("The quick brown fox jumps over the lazy dog.");
+var updated = Encoding.UTF8.GetBytes("The quick brown hare jumps over the lazy dog.");
 
 byte[] patch = Vcdiff.Encode(original, updated);
 byte[] restored = Vcdiff.Decode(original, patch);
 
-Console.WriteLine(Encoding.UTF8.GetString(restored)); // port=8081
+Console.WriteLine(Encoding.UTF8.GetString(restored)); // The quick brown hare jumps over the lazy dog.
 ```
 
 ## Apply a patch to a file
@@ -36,7 +36,36 @@ using var restored = File.Create("restored.bin");
 Vcdiff.Decode(original, patch, restored);
 ```
 
-The decoder reads the patch one window at a time. Copies from the original file require a seekable source. Copies from earlier output require a readable, seekable destination.
+The decoder reads the patch sequentially and leaves all three streams open. Copies from the original require a readable, seekable source. Copies from earlier output require a readable, seekable destination.
+
+### Limit stream decoding
+
+To cap the output at 64 MiB and bound each window, use this call in place of `Decode` in the file example above.
+
+```csharp
+const int MiB = 1024 * 1024;
+Vcdiff.DecodeWithLimits(original, patch, restored,
+    maxEncodedWindowBytes: 4 * MiB, // Patch payload buffered per window
+    maxWindowBytes: 8 * MiB,        // Decoded bytes per window
+    maxOutputBytes: 64 * MiB);      // Total decoded bytes
+```
+
+## Use your own buffers
+
+```csharp
+using System.Buffers;
+using XDeltaSharp;
+
+var original = File.ReadAllBytes("original.bin");
+var updated = File.ReadAllBytes("updated.bin");
+
+var patch = new ArrayBufferWriter<byte>();
+Vcdiff.Encode(original, updated, patch);
+
+var buffer = new byte[updated.Length];
+int written = Vcdiff.Decode(original, patch.WrittenSpan, buffer.AsSpan());
+ReadOnlySpan<byte> restored = buffer.AsSpan(0, written);
+```
 
 ## Encoding and decoding options
 

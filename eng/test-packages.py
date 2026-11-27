@@ -139,8 +139,18 @@ def main():
 """)
         with ZipFile(feed / f"xdelta.{version}.nupkg") as package:
             readme = package.read("README.md").decode()
-        round_trip, apply_file = re.findall(r"^```csharp\n(.*?)^```$", readme, re.MULTILINE | re.DOTALL)
+        round_trip, apply_file, limited_decode, buffer_decode = re.findall(
+            r"^```csharp\n(.*?)^```$", readme, re.MULTILINE | re.DOTALL)
         round_trip += '\nif (!restored.AsSpan().SequenceEqual(updated)) throw new InvalidDataException("Round trip failed.");'
+        limited_decode = """using XDeltaSharp;
+using var original = File.OpenRead("original.bin");
+using var patch = File.OpenRead("update.vcdiff");
+using var restored = new MemoryStream();
+""" + limited_decode + """
+if (!restored.ToArray().AsSpan().SequenceEqual(File.ReadAllBytes("updated.bin")))
+    throw new InvalidDataException("Limited decode failed.");
+"""
+        buffer_decode += '\nif (!restored.SequenceEqual(updated)) throw new InvalidDataException("Buffer decode failed.");'
         for framework in FRAMEWORKS:
             work = root / framework
             work.mkdir()
@@ -151,6 +161,8 @@ def main():
             run_example(work, apply_file, ["xdelta.Lzma", "xdelta.Blake3"], version, framework)
             if (work / "restored.bin").read_bytes() != (FIXTURES / "target.txt").read_bytes():
                 raise ValueError(f"The {framework} packaged file example reconstructed the wrong target")
+            run_example(work, limited_decode, ["xdelta"], version, framework)
+            run_example(work, buffer_decode, ["xdelta"], version, framework)
         check_published_addons(feed / f"xdelta.{version}.nupkg")
 
 
