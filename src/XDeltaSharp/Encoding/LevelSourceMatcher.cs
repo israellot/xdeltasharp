@@ -42,13 +42,17 @@ internal readonly ref struct LevelSourceMatcher
         _index = new MatchIndex(positions, MatchIndex.Buckets(positions, memory), scratch, links: 0);
         // Populate backwards so the earliest occurrence wins a bucket collision.
         for (int block = positions - 1; block >= 0; block--)
-            _index.Set(Bucket(source[(block * step)..]), block + 1);
+            _index[Bucket(source[(block * step)..])] = block + 1;
     }
 
     private int Bucket(ReadOnlySpan<byte> seed)
     {
-        ulong key = BinaryPrimitives.ReadUInt64LittleEndian(seed) ^ ((ulong)seed[8] * 0x9E3779B185EBCA87UL);
-        return (int)(unchecked((key ^ (key >> 31)) * 0xBF58476D1CE4E5B9UL) >> 32) & (_index.BucketCount - 1);
+        // Fold the ninth byte into the first eight with xxHash64's first prime, then mix with the first
+        // multiplier of splitmix64 and keep the high half, where that multiply leaves its best bits.
+        const ulong FoldMultiplier = 0x9E3779B185EBCA87UL;
+        const ulong MixMultiplier = 0xBF58476D1CE4E5B9UL;
+        ulong key = BinaryPrimitives.ReadUInt64LittleEndian(seed) ^ ((ulong)seed[8] * FoldMultiplier);
+        return (int)(unchecked((key ^ (key >> 31)) * MixMultiplier) >> 32) & (_index.BucketCount - 1);
     }
 
     internal CopyMatch Find(ReadOnlySpan<byte> window, int probe, int pending, int minimum, long predicted)
@@ -64,13 +68,13 @@ internal readonly ref struct LevelSourceMatcher
         if (_index.BucketCount == 0)
         {
             if (probe % _directSearchStride != 0) return default;
-            position = _source.IndexOf(tail[..4]);
+            position = _source.IndexOf(tail[..MatcherProfile.TargetSeed]);
             if (position < 0) return default;
         }
         else
         {
             if (tail.Length < MatcherProfile.SourceSeed) return default;
-            int block = _index.Entry(Bucket(tail));
+            int block = _index[Bucket(tail)];
             if (block == 0) return default;
             position = (block - 1) * _step;
         }
@@ -83,7 +87,8 @@ internal readonly ref struct LevelSourceMatcher
         var tail = window[probe..];
         if (reference.Length < minimum || BinaryPrimitives.ReadUInt32LittleEndian(reference) !=
             BinaryPrimitives.ReadUInt32LittleEndian(tail)) return default;
-        int forward = 4 + tail[4..].CommonPrefixLength(reference[4..]);
+        int forward = MatcherProfile.TargetSeed +
+            tail[MatcherProfile.TargetSeed..].CommonPrefixLength(reference[MatcherProfile.TargetSeed..]);
         if (forward < minimum) return default;
         int back = CopyMatch.CommonSuffixLength(window[pending..probe], _source[..position]);
         return new CopyMatch(position - back, probe - back, forward + back);

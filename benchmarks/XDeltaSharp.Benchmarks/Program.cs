@@ -95,14 +95,15 @@ static void BenchmarkLevels(byte[] source, byte[] target)
     Console.WriteLine("Level,Patch bytes,Median ms");
     for (int level = 0; level <= 9; level++)
     {
-        byte[] expected = Vcdiff.Encode(source, target, level);
+        var options = new VcdiffEncodeOptions { CompressionLevel = level };
+        byte[] expected = Vcdiff.Encode(source, target, options);
         if (!Vcdiff.Decode(source, expected).AsSpan().SequenceEqual(target))
             throw new InvalidDataException("Level " + level + " failed to reconstruct target.");
         var writer = new ArrayBufferWriter<byte>(expected.Length);
         void Encode()
         {
             writer.ResetWrittenCount();
-            Vcdiff.Encode(source, target, writer, level);
+            Vcdiff.Encode(source, target, writer, options);
         }
         var warm = Stopwatch.StartNew();
         while (warm.ElapsedMilliseconds < 600) Encode();
@@ -154,7 +155,8 @@ static void Benchmark(string name, byte[] source, byte[] target)
 
 static void MeasureEncoder(string name, byte[] source, byte[] target, int level, MemoryMode memoryMode, bool optimize = false)
 {
-    byte[] EncodeArray() => Vcdiff.Encode(source, target, optimize, level, memoryMode);
+    var options = new VcdiffEncodeOptions { CompressionLevel = level, MemoryMode = memoryMode, Optimize = optimize };
+    byte[] EncodeArray() => Vcdiff.Encode(source, target, options);
     byte[] reference = EncodeArray();
     if (!Vcdiff.Decode(source, reference).AsSpan().SequenceEqual(target))
         throw new InvalidDataException("Round trip failed.");
@@ -162,7 +164,7 @@ static void MeasureEncoder(string name, byte[] source, byte[] target, int level,
     void EncodeInto()
     {
         writer.ResetWrittenCount();
-        Vcdiff.Encode(source, target, writer, optimize, level, memoryMode);
+        Vcdiff.Encode(source, target, writer, options);
     }
 
     EncodeInto();

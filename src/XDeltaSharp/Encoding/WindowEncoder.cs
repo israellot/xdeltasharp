@@ -8,22 +8,30 @@ internal static class WindowEncoder
     internal const int TargetWindowSize = 8 << 20;
     private const int SourceSegmentSize = 64 << 20;
 
-    internal static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target,
-        int compressionLevel, MemoryMode memoryMode, bool optimize = false)
+    // Stack scratch for one window's sections and pending matches. Larger windows spill to pooled arrays.
+    internal const int DataScratchSize = 128;
+    internal const int InstructionScratchSize = 64;
+    internal const int AddressScratchSize = 64;
+    private const int PendingMatchScratch = 16;
+    // Shorter windows are encoded without the SAME address cache.
+    private const int MinTargetForSameCache = 128;
+
+    internal static byte[] Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, VcdiffEncodeOptions options)
     {
-        var profile = MatcherProfile.FromLevel(compressionLevel);
+        var profile = MatcherProfile.FromLevel(options.CompressionLevel);
         // A single window can allocate its exact result. Longer targets need to collect multiple frames.
         if (target.Length <= TargetWindowSize)
-            return EncodeWindows(source, target, null, memoryMode, profile, optimize)!;
+            return EncodeWindows(source, target, null, options.MemoryMode, profile, options.Optimize)!;
 
         var destination = new ArrayBufferWriter<byte>();
-        EncodeWindows(source, target, destination, memoryMode, profile, optimize);
+        EncodeWindows(source, target, destination, options.MemoryMode, profile, options.Optimize);
         return destination.WrittenSpan.ToArray();
     }
 
     internal static void Encode(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte> destination,
-        int compressionLevel, MemoryMode memoryMode, bool optimize = false)
-        => EncodeWindows(source, target, destination, memoryMode, MatcherProfile.FromLevel(compressionLevel), optimize);
+        VcdiffEncodeOptions options)
+        => EncodeWindows(source, target, destination, options.MemoryMode,
+            MatcherProfile.FromLevel(options.CompressionLevel), options.Optimize);
 
     private static byte[]? EncodeWindows(ReadOnlySpan<byte> source, ReadOnlySpan<byte> target, IBufferWriter<byte>? destination,
         MemoryMode memoryMode, MatcherProfile profile, bool optimize)
@@ -57,15 +65,15 @@ internal static class WindowEncoder
         ReadOnlySpan<byte> target, int targetOffset, IBufferWriter<byte>? destination,
         MemoryMode memoryMode, MatcherProfile profile, bool optimize)
     {
-        Span<int> same = target.Length >= 128 ? stackalloc int[AddressCache.SameSize] : [];
-        var writer = new WindowWriter(segmentOffset, segment.Length,
-            stackalloc byte[128], stackalloc byte[64], stackalloc byte[64], same);
+        Span<int> same = target.Length >= MinTargetForSameCache ? stackalloc int[AddressCache.SameSize] : [];
+        var writer = new WindowWriter(segmentOffset, segment.Length, stackalloc byte[DataScratchSize],
+            stackalloc byte[InstructionScratchSize], stackalloc byte[AddressScratchSize], same);
         try
         {
             LevelParser.Parse(in matcher, target, targetOffset - segmentOffset, profile, memoryMode,
-                stackalloc CopyMatch[16], ref writer);
+                stackalloc CopyMatch[PendingMatchScratch], ref writer);
             if (optimize)
-                return WindowOptimizer.Finish(ref writer, segment, segmentOffset, target, targetOffset == 0, destination);
+                return WindowOptimizer.FinishSmallest(ref writer, segment, segmentOffset, target, targetOffset == 0, destination);
             return writer.Finish(target, targetOffset == 0, destination);
         }
         finally

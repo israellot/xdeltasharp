@@ -4,8 +4,21 @@ namespace XDeltaSharp.Tests;
 
 internal static class WindowVectors
 {
+    // The VCDIFF magic bytes and format version 0. The file header's flag byte follows.
+    private static ReadOnlySpan<byte> Signature => [0xD6, 0xC3, 0xC4, 0];
+
     internal static byte[] Patch(params byte[][] windows)
-        => [0xD6, 0xC3, 0xC4, 0, 0, .. windows.SelectMany(window => window)];
+        => [.. Signature, 0, .. windows.SelectMany(window => window)];
+
+    /// <summary>A patch whose file header declares LZMA, compressor ID 2, for its sections.</summary>
+    internal static byte[] LzmaPatch(params byte[][] windows)
+        => [.. Signature, 1, 2, .. windows.SelectMany(window => window)];
+
+    internal static byte[] PatchWithApplicationHeader(byte[] header, params byte[][] windows)
+        => [.. Signature, 4, .. Integer(header.Length), .. header, .. windows.SelectMany(window => window)];
+
+    internal static byte[] Fixture(string name)
+        => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
 
     internal static byte[] Integer(long value)
     {
@@ -32,9 +45,12 @@ internal static class WindowVectors
         return [indicator, .. segment, .. Integer(delta.Length), .. delta];
     }
 
+    internal static VcdiffEncodeOptions Level(int level, MemoryMode memory = MemoryMode.Default, bool optimize = false)
+        => new() { CompressionLevel = level, MemoryMode = memory, Optimize = optimize };
+
     internal static void AssertDecodes(byte[] source, byte[] patch, byte[] expected)
     {
-        Assert.Equal(expected, Vcdiff.Decode(source, patch, maxOutputBytes: expected.Length));
+        Assert.Equal(expected, Vcdiff.Decode(source, patch, new VcdiffDecodeOptions { MaxOutputBytes = expected.Length }));
         byte[] buffer = Enumerable.Repeat((byte)0xCC, expected.Length + 2).ToArray();
         Assert.Equal(expected.Length, Vcdiff.Decode(source, patch, buffer.AsSpan(1)));
         Assert.Equal(expected, buffer[1..^1]);

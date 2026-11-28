@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Xunit;
+using static XDeltaSharp.Tests.WindowVectors;
 
 namespace XDeltaSharp.Tests;
 
@@ -18,13 +19,16 @@ public class Xdelta3InteropTests
     [Trait("Category", "Interop")]
     public void Xdelta3AppliesPatchesAtEveryCompressionLevel()
     {
-        string fixtures = Path.Combine(AppContext.BaseDirectory, "Fixtures");
-        byte[] source = File.ReadAllBytes(Path.Combine(fixtures, "source.txt"));
-        byte[] target = [.. File.ReadAllBytes(Path.Combine(fixtures, "target.txt")), .. new byte[128]];
+        byte[] source = Fixture("source.txt");
+        byte[] target = [.. Fixture("target.txt"), .. new byte[128]];
         for (int level = 0; level <= 9; level++)
         {
-            AssertXdelta3Decodes(source, Vcdiff.Encode(source, target, level), target, $"Encode level {level}");
-            AssertXdelta3Decodes(source, Vcdiff.Encode(source, target, optimize: true, level), target, $"Encode optimize: true, level {level}");
+            foreach (bool optimize in new[] { false, true })
+            {
+                var options = new VcdiffEncodeOptions { CompressionLevel = level, Optimize = optimize };
+                AssertXdelta3Decodes(source, Vcdiff.Encode(source, target, options), target,
+                    $"level {level}, optimize {optimize}");
+            }
         }
     }
 
@@ -38,7 +42,7 @@ public class Xdelta3InteropTests
         new Random(23).NextBytes(source.AsSpan(boundary));
         byte[] target = (byte[])source.Clone();
         target.AsSpan(0, 8 << 20).Fill(0x5A);
-        byte[] patch = Vcdiff.Encode(source, target, compressionLevel: 0);
+        byte[] patch = Vcdiff.Encode(source, target, new VcdiffEncodeOptions { CompressionLevel = 0 });
         // The random tail must be copied from the shifted dictionary for the patch to fit.
         Assert.True(patch.Length < tailLength);
         AssertXdelta3Decodes(source, patch, target, "multi-window source COPY");

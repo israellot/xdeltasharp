@@ -8,6 +8,22 @@ public class DecoderMutationTests
 {
     private const int Limit = 4096;
 
+    private static readonly VcdiffDecodeOptions Limits = new()
+    {
+        MaxOutputBytes = Limit,
+        MaxWindowBytes = Limit,
+        MaxEncodedWindowBytes = Limit
+    };
+
+    private static readonly LzmaDecodeOptions LzmaLimits = new()
+    {
+        MaxOutputBytes = Limit,
+        MaxWindowBytes = Limit,
+        MaxEncodedWindowBytes = Limit,
+        MaxExpandedSectionBytes = Limit,
+        MaxDictionaryBytes = Limit
+    };
+
     [Theory]
     [InlineData("open-vcdiff")]
     [InlineData("xdelta3")]
@@ -15,11 +31,10 @@ public class DecoderMutationTests
     [InlineData("lzma-stored")]
     public void PublicDecodersAgreeOnMutatedPatches(string fixture)
     {
-        string fixtures = Path.Combine(AppContext.BaseDirectory, "Fixtures");
-        byte[] source = File.ReadAllBytes(Path.Combine(fixtures, "source.txt"));
+        byte[] source = Fixture("source.txt");
         bool lzma = fixture == "lzma-stored";
-        byte[] seed = lzma ? StoredLzmaPatch() : File.ReadAllBytes(Path.Combine(fixtures, fixture + ".vcdiff"));
-        byte[] expected = lzma ? "abc"u8.ToArray() : File.ReadAllBytes(Path.Combine(fixtures, "target.txt"));
+        byte[] seed = lzma ? StoredLzmaPatch() : Fixture(fixture + ".vcdiff");
+        byte[] expected = lzma ? "abc"u8.ToArray() : Fixture("target.txt");
         byte[] buffer = new byte[Limit];
         Assert.Equal(expected, Check(seed, "original"));
 
@@ -40,15 +55,13 @@ public class DecoderMutationTests
         {
             string context = $"{fixture}, {mutation}";
             byte[]? allocated = DecodeOrReject(() => lzma
-                ? LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, maxExpandedSectionBytes: Limit,
-                    maxDictionaryBytes: Limit, maxOutputBytes: Limit, maxWindowBytes: Limit)
-                : Vcdiff.Decode(source, patch, maxOutputBytes: Limit, maxWindowBytes: Limit), context);
+                ? LzmaVcdiff.Decode(source, patch, LzmaLimits)
+                : Vcdiff.Decode(source, patch, Limits), context);
             byte[]? buffered = DecodeOrReject(() =>
             {
                 int length = lzma
-                    ? LzmaVcdiff.DecodeWithSecondaryLimits(source, patch, buffer, maxExpandedSectionBytes: Limit,
-                        maxDictionaryBytes: Limit, maxWindowBytes: Limit)
-                    : Vcdiff.Decode(source, patch, buffer, maxWindowBytes: Limit);
+                    ? LzmaVcdiff.Decode(source, patch, buffer, LzmaLimits)
+                    : Vcdiff.Decode(source, patch, buffer, Limits);
                 return buffer[..length];
             }, context, callerBuffer: true);
             byte[]? streamed = DecodeOrReject(() =>
@@ -57,10 +70,8 @@ public class DecoderMutationTests
                 using var input = new MemoryStream(patch);
                 using var output = new MemoryStream();
                 long length = lzma
-                    ? LzmaVcdiff.DecodeWithSecondaryLimits(dictionary, input, output, maxEncodedWindowBytes: Limit,
-                        maxExpandedSectionBytes: Limit, maxDictionaryBytes: Limit, maxOutputBytes: Limit, maxWindowBytes: Limit)
-                    : Vcdiff.DecodeWithLimits(dictionary, input, output, maxEncodedWindowBytes: Limit,
-                        maxOutputBytes: Limit, maxWindowBytes: Limit);
+                    ? LzmaVcdiff.Decode(dictionary, input, output, LzmaLimits)
+                    : Vcdiff.Decode(dictionary, input, output, Limits);
                 Assert.Equal(output.Length, length);
                 return output.ToArray();
             }, context);
@@ -89,6 +100,6 @@ public class DecoderMutationTests
         // xdelta3's XZ block header with a 4 KiB LZMA2 dictionary and one stored chunk.
         byte[] header = Convert.FromHexString("FD377A585A000000FF12D9410200210100000000372797D6");
         byte[] data = [3, .. header, 1, 0, 2, .. "abc"u8];
-        return [0xD6, 0xC3, 0xC4, 0, 1, 2, .. Window(3, data, [4], [], compressedSections: 1)];
+        return LzmaPatch(Window(3, data, [4], [], compressedSections: 1));
     }
 }

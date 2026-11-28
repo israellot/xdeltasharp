@@ -9,20 +9,37 @@ public class WindowLimitTests
     private const int MiB = 1024 * 1024;
     private static byte[] Run(int size) => Window(size, [42], [0, .. Integer(size)], []);
 
+    private static VcdiffDecodeOptions Limits(long output = long.MaxValue, int window = Vcdiff.MaxTargetWindowBytes)
+        => new() { MaxOutputBytes = output, MaxWindowBytes = window };
+
     [Fact]
-    public void AllocatingDecoderDistinguishesPositionalOutputLimitFromNamedWindowLimit()
+    public void OutputAndWindowLimitsAreInclusive()
     {
         byte[] patch = Patch(Run(8), Run(8));
         byte[] expected = Enumerable.Repeat((byte)42, 16).ToArray();
 
         Assert.Equal(expected, Vcdiff.Decode([], patch));
-        Assert.Equal(expected, Vcdiff.Decode([], patch, maxWindowBytes: 8));
-        Assert.Equal(expected, Vcdiff.Decode([], patch, maxWindowBytes: 8, maxOutputBytes: 16));
-        Assert.Equal(expected, Vcdiff.Decode([], patch, 16, 8));
-        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, 8));
-        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, maxOutputBytes: 8));
-        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, maxWindowBytes: 7));
-        Assert.Throws<ArgumentOutOfRangeException>("maxWindowBytes", () => Vcdiff.Decode([], patch, maxWindowBytes: -1));
+        Assert.Equal(expected, Vcdiff.Decode([], patch, Limits(window: 8)));
+        Assert.Equal(expected, Vcdiff.Decode([], patch, Limits(output: 16, window: 8)));
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, Limits(output: 15)));
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, Limits(window: 7)));
+    }
+
+    [Fact]
+    public void RejectsLimitsOutsideTheSupportedRange()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => Limits(output: -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Limits(window: -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Limits(window: 64 * MiB + 1));
+    }
+
+    [Fact]
+    public void OutputLimitAlsoAppliesToACallerBuffer()
+    {
+        byte[] patch = Patch(Run(8), Run(8));
+        var buffer = new byte[16];
+        Assert.Equal(16, Vcdiff.Decode([], patch, buffer, Limits(output: 16)));
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, buffer, Limits(output: 15)));
     }
 
     [Fact]
@@ -55,16 +72,15 @@ public class WindowLimitTests
     public void WindowLimitMayBeTightenedIndependentlyOfTotalOutput()
     {
         byte[] patch = Patch(Run(8), Run(8));
-        Assert.Equal(16, Vcdiff.Decode([], patch, maxOutputBytes: 16, maxWindowBytes: 8).Length);
-        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, 16, 7));
-        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, new byte[16], 7));
-        Assert.Throws<ArgumentOutOfRangeException>(() => Vcdiff.Decode([], patch, 16, 64 * MiB + 1));
+        Assert.Equal(16, Vcdiff.Decode([], patch, Limits(output: 16, window: 8)).Length);
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, Limits(output: 16, window: 7)));
+        Assert.Throws<InvalidDataException>(() => Vcdiff.Decode([], patch, new byte[16], Limits(window: 7)));
         using var output = new MemoryStream();
         Assert.Throws<InvalidDataException>(() =>
-            Vcdiff.Decode(Stream.Null, new MemoryStream(patch), output, maxWindowBytes: 7));
+            Vcdiff.Decode(Stream.Null, new MemoryStream(patch), output, Limits(window: 7)));
         Assert.Equal(0, output.Length);
         Assert.Throws<InvalidDataException>(() =>
-            Vcdiff.Decode(Stream.Null, new MemoryStream(patch), output, maxOutputBytes: 15, maxWindowBytes: 8));
+            Vcdiff.Decode(Stream.Null, new MemoryStream(patch), output, Limits(output: 15, window: 8)));
         Assert.Equal(8, output.Length);
     }
 
@@ -123,7 +139,7 @@ public class WindowLimitTests
         byte[] patch = Patch(Window(6, "ABCDEF"u8.ToArray(), [7], []), Window(4, [], [20], [0], 2, 4, 1));
         using var output = new MemoryStream();
         output.Write("prefix"u8);
-        using var input = new ShortReadPatch(patch);
+        using var input = new ShortReadStream(patch, maxRead: 2);
         Assert.Equal(10, Vcdiff.Decode(Stream.Null, input, output));
         Assert.Equal("prefixABCDEFBCDE"u8.ToArray(), output.ToArray());
         Assert.Equal(output.Length, output.Position);
@@ -213,17 +229,11 @@ public class WindowLimitTests
     {
         byte[] metadata = new byte[4097];
         new Random(7).NextBytes(metadata);
-        byte[] patch = [0xD6, 0xC3, 0xC4, 0, 4, .. Integer(metadata.Length), .. metadata, .. Run(8)];
-        using var input = new ShortReadPatch(patch);
+        byte[] patch = PatchWithApplicationHeader(metadata, Run(8));
+        using var input = new ShortReadStream(patch, maxRead: 2);
         using var sink = new CheckingSink();
         Assert.Equal(8, Vcdiff.Decode(Stream.Null, input, sink));
         Assert.Equal(8, sink.VerifiedBytes);
-    }
-
-    private sealed class ShortReadPatch(byte[] bytes) : MemoryStream(bytes)
-    {
-        public override bool CanSeek => false;
-        public override int Read(Span<byte> buffer) => base.Read(buffer[..Math.Min(2, buffer.Length)]);
     }
 
     private sealed class CountingFile(string path)

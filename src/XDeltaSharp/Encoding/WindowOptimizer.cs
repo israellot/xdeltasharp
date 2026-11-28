@@ -7,7 +7,19 @@ namespace XDeltaSharp.Encoding;
 /// <summary>Refines completed operations while the source and target of the window are available.</summary>
 internal static class WindowOptimizer
 {
-    internal static byte[]? Finish(ref WindowWriter original, ReadOnlySpan<byte> source, int sourceOffset,
+    private const int OperationScratch = 32;
+
+    // A RUN costs three bytes (opcode, size, value) and the shortest COPY opcode covers four,
+    // so an operation trimmed below these lengths cannot pay for itself.
+    private const int MinRunLength = 3;
+    private const int MinCopyLength = 4;
+
+    // Operations this short can cost more than the literals they replace, so they are priced before use.
+    private const int MaxLengthToPrice = 8;
+
+    /// <summary>Writes the window from <paramref name="original"/> or from a refined copy of its operations,
+    /// whichever is smaller.</summary>
+    internal static byte[]? FinishSmallest(ref WindowWriter original, ReadOnlySpan<byte> source, int sourceOffset,
         ReadOnlySpan<byte> target, bool firstWindow, IBufferWriter<byte>? destination)
     {
         // Finish already compares a lone ADD or RUN with a literal-only window.
@@ -17,7 +29,7 @@ internal static class WindowOptimizer
         // Each default opcode contains at most one COPY or RUN. ADDs are implicit gaps.
         int capacity = Math.Min(original.Instructions.Length, target.Length);
         CopyMatch[]? rented = null;
-        Span<CopyMatch> operations = capacity <= 32 ? stackalloc CopyMatch[capacity] :
+        Span<CopyMatch> operations = capacity <= OperationScratch ? stackalloc CopyMatch[capacity] :
             (rented = ArrayPool<CopyMatch>.Shared.Rent(capacity)).AsSpan(0, capacity);
         try
         {
@@ -26,38 +38,14 @@ internal static class WindowOptimizer
             operations = ExtendBackward(operations[..count], source, target);
             ExtendForward(operations, source, target);
 
-            int first = source.Length, end = 0;
-            foreach (var op in operations)
-            {
-                if (op.IsRun || op.ReadOffset >= source.Length) continue;
-                first = Math.Min(first, op.ReadOffset);
-                end = Math.Max(end, op.ReadOffset + op.Length);
-            }
-            int dictionarySize = end == 0 ? 0 : end - first;
-            var candidate = new WindowWriter(end == 0 ? 0 : sourceOffset + first, dictionarySize,
-                stackalloc byte[128], stackalloc byte[64], stackalloc byte[64], stackalloc int[AddressCache.SameSize]);
+            // The refined window declares only the part of the source its copies still read.
+            var (dictionaryStart, dictionarySize) = SourceRange(operations, source.Length);
+            var candidate = new WindowWriter(dictionarySize == 0 ? 0 : sourceOffset + dictionaryStart, dictionarySize,
+                stackalloc byte[WindowEncoder.DataScratchSize], stackalloc byte[WindowEncoder.InstructionScratchSize],
+                stackalloc byte[WindowEncoder.AddressScratchSize], stackalloc int[AddressCache.SameSize]);
             try
             {
-                int written = 0;
-                foreach (var op in operations)
-                {
-                    if (op.IsRun)
-                    {
-                        if (op.Length <= 8 && candidate.RunSavings(op.WriteOffset, op.Length) <= 0) continue;
-                        candidate.Add(target[written..op.WriteOffset]);
-                        candidate.Run(target[op.WriteOffset], op.Length);
-                    }
-                    else
-                    {
-                        int address = op.ReadOffset < source.Length ? op.ReadOffset - first :
-                            op.ReadOffset - source.Length + dictionarySize;
-                        if (op.Length <= 8 && candidate.CopySavings(op.WriteOffset, address, op.Length) <= 0) continue;
-                        candidate.Add(target[written..op.WriteOffset]);
-                        candidate.Copy(address, op.Length);
-                    }
-                    written = op.End;
-                }
-                candidate.Add(target[written..]);
+                Write(ref candidate, operations, source.Length, dictionaryStart, dictionarySize, target);
                 var candidateLayout = candidate.Measure(target.Length);
                 var originalLayout = original.Measure(target.Length);
                 return candidateLayout.Length < originalLayout.Length
@@ -73,6 +61,43 @@ internal static class WindowOptimizer
         {
             if (rented != null) ArrayPool<CopyMatch>.Shared.Return(rented);
         }
+    }
+
+    private static (int Start, int Length) SourceRange(ReadOnlySpan<CopyMatch> operations, int sourceLength)
+    {
+        int start = sourceLength, end = 0;
+        foreach (var op in operations)
+        {
+            if (op.IsRun || op.ReadOffset >= sourceLength) continue;
+            start = Math.Min(start, op.ReadOffset);
+            end = Math.Max(end, op.ReadOffset + op.Length);
+        }
+        return end == 0 ? (0, 0) : (start, end - start);
+    }
+
+    private static void Write(ref WindowWriter writer, ReadOnlySpan<CopyMatch> operations, int sourceLength,
+        int dictionaryStart, int dictionarySize, ReadOnlySpan<byte> target)
+    {
+        int written = 0;
+        foreach (var op in operations)
+        {
+            if (op.IsRun)
+            {
+                if (op.Length <= MaxLengthToPrice && writer.RunSavings(op.WriteOffset, op.Length) <= 0) continue;
+                writer.Add(target[written..op.WriteOffset]);
+                writer.Run(target[op.WriteOffset], op.Length);
+            }
+            else
+            {
+                int address = op.ReadOffset < sourceLength ? op.ReadOffset - dictionaryStart :
+                    op.ReadOffset - sourceLength + dictionarySize;
+                if (op.Length <= MaxLengthToPrice && writer.CopySavings(op.WriteOffset, address, op.Length) <= 0) continue;
+                writer.Add(target[written..op.WriteOffset]);
+                writer.Copy(address, op.Length);
+            }
+            written = op.End;
+        }
+        writer.Add(target[written..]);
     }
 
     private static int ReadOperations(ReadOnlySpan<byte> codes, ReadOnlySpan<byte> operands, int sourceLength,
@@ -115,7 +140,7 @@ internal static class WindowOptimizer
         {
             var op = ops[i];
             int length = Math.Min(op.Length, limit - op.WriteOffset);
-            if (length < (op.IsRun ? 3 : 4)) continue;
+            if (length < (op.IsRun ? MinRunLength : MinCopyLength)) continue;
             int start = op.WriteOffset, address = op.ReadOffset;
             if (address < 0)
             {

@@ -69,7 +69,8 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
         else
         {
             // A pending ADD already paired with the preceding COPY cannot pair a second time.
-            bool canPair = pending == 0 ? _canPair : pending <= 4 && LiteralCost(pending) > pending;
+            bool canPair = pending == 0 ? _canPair
+                : pending <= DefaultCodeTable.MaxPairedAddSize && LiteralCost(pending) > pending;
             if (canPair && DefaultCodeTable.TryPair(pending == 0 ? _lastOpcode : DefaultCodeTable.AddOpcode(pending),
                 DefaultCodeTable.CopyOpcode(mode, length), out _)) cost--;
         }
@@ -113,7 +114,8 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
             }
         }
 
-        if (!_same.IsEmpty && _addresses.Length != 0 && value >= 128)
+        // A SAME address always takes one byte, so it only helps when the best other mode needs two.
+        if (!_same.IsEmpty && _addresses.Length != 0 && value >= WireInteger.FirstTwoByteValue)
         {
             int slot = address % _same.Length;
             if (_same[slot] == address)
@@ -178,22 +180,10 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
             FileHeader.Default.CopyTo(output);
             output = output[FileHeader.Default.Length..];
         }
-        output[0] = (byte)(layout.UsesDictionary ? WindowFlags.Source : WindowFlags.None);
-        output = output[1..];
-        if (layout.UsesDictionary)
-        {
-            PutInteger(ref output, sourceLength);
-            PutInteger(ref output, sourceOffset);
-        }
-        PutInteger(ref output, layout.DeltaSize);
-        PutInteger(ref output, target.Length);
-        output[0] = 0;
-        output = output[1..];
-        PutInteger(ref output, layout.LiteralOnly ? target.Length : DataLength);
-        PutInteger(ref output, layout.InstructionSize);
-        PutInteger(ref output, layout.LiteralOnly ? 0 : _addresses.Length);
+        WriteHeader(ref output, target.Length, layout);
         if (layout.LiteralOnly)
         {
+            // The whole target as one ADD, with no addresses.
             Put(ref output, target);
             output[0] = DefaultCodeTable.AddOpcode(target.Length);
             if (target.Length > DefaultCodeTable.MaxFixedAddSize) WireInteger.Write(output[1..], target.Length);
@@ -209,9 +199,34 @@ internal ref struct WindowWriter(int sourceOffset, int sourceLength, Span<byte> 
         return result;
     }
 
+    // RFC 3284 section 4.2 and 4.3: indicator, dictionary segment, delta length, target length,
+    // delta indicator, then the three section lengths.
+    private readonly void WriteHeader(ref Span<byte> output, int targetLength, WindowLayout layout)
+    {
+        const byte noCompressedSections = 0;
+        PutByte(ref output, (byte)(layout.UsesDictionary ? WindowFlags.Source : WindowFlags.None));
+        if (layout.UsesDictionary)
+        {
+            PutInteger(ref output, sourceLength);
+            PutInteger(ref output, sourceOffset);
+        }
+        PutInteger(ref output, layout.DeltaSize);
+        PutInteger(ref output, targetLength);
+        PutByte(ref output, noCompressedSections);
+        PutInteger(ref output, layout.LiteralOnly ? targetLength : DataLength);
+        PutInteger(ref output, layout.InstructionSize);
+        PutInteger(ref output, layout.LiteralOnly ? 0 : _addresses.Length);
+    }
+
     private static int DeltaSize(int target, int data, int instructions, int addresses)
         => WireInteger.Size(target) + 1 + WireInteger.Size(data) + WireInteger.Size(instructions)
             + WireInteger.Size(addresses) + data + instructions + addresses;
+
+    private static void PutByte(ref Span<byte> output, byte value)
+    {
+        output[0] = value;
+        output = output[1..];
+    }
 
     private static void PutInteger(ref Span<byte> output, int value)
         => output = output[WireInteger.Write(output, value)..];

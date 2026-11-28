@@ -17,7 +17,7 @@ These historical measurements cover level 3 (listed as Default) and the retired 
 | SQLite Linux 3.54.0 → 3.54.1 | Default | 243,153 | 238,692 | -1.8% | 8.79 | 11.27 |
 | SQLite Linux 3.54.0 → 3.54.1 | Exhaustive | 260,482 | 250,362 | -3.9% | 144.44 | 147.36 |
 
-Apple M3 Max, .NET 8.0.25 Release, default memory policy. Inputs came from the DeltaSharp Moby-Dick fixtures and the [SQLite release executable measurements](Fast-release-binaries-net8-arm64.md). Each encoder ran in both measurement orders, warmed up for at least 350 ms, and timed seven batches per order. The table gives the average of the two batch medians. File I/O, input setup, and output verification were outside the timed region. All twelve optimized files were independently decoded with xdelta3 3.2.2 and open-vcdiff and compared byte-for-byte with their targets.
+Apple M3 Max, .NET 8.0.25 Release, default memory policy. Inputs came from the DeltaSharp Moby-Dick fixtures and the [SQLite release executable measurements](https://github.com/israellot/xdeltasharp/blob/05c751b5be3097b7a0cf3bfacc0460ac715d51db/benchmarks/Results/Fast-release-binaries-net8-arm64.md). Each encoder ran in both measurement orders, warmed up for at least 350 ms, and timed seven batches per order. The table gives the average of the two batch medians. File I/O, input setup, and output verification were outside the timed region. All twelve optimized files were independently decoded with xdelta3 3.2.2 and open-vcdiff and compared byte-for-byte with their targets.
 
 To measure the pass on another input pair at levels 0 through 9, run the current benchmark.
 

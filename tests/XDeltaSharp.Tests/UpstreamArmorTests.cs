@@ -22,17 +22,16 @@ public class UpstreamArmorTests
         // End windows inside BLAKE3's 1024-byte chunks. Encode each window as a single ADD.
         byte[] windows = target.Chunk(769).SelectMany(data =>
             Window(data.Length, data, [1, .. Integer(data.Length)], [])).ToArray();
-        byte[] header = System.Text.Encoding.ASCII.GetBytes($"target#{digest}/");
-        byte[] patch = [0xd6, 0xc3, 0xc4, 0, 4, .. Integer(header.Length), .. header, .. windows];
+        byte[] patch = PatchWithApplicationHeader(System.Text.Encoding.ASCII.GetBytes($"target#{digest}/"), windows);
         using var input = new MemoryStream(patch);
         using var output = new MemoryStream();
-        Assert.Equal(length, Vcdiff.Decode(Stream.Null, input, output, armor: Blake3Armor.Verify));
+        Assert.Equal(length, Vcdiff.Decode(Stream.Null, input, output, new VcdiffDecodeOptions { Armor = Blake3Armor.Verify }));
         Assert.Equal(target, output.ToArray());
 
         // Keep a well-formed 64-digit digest so the negative control must verify it.
         patch[Array.IndexOf(patch, (byte)'#') + 1] = digest[0] == '0' ? (byte)'1' : (byte)'0';
         input.Position = 0;
         Assert.Contains("BLAKE3 target", Assert.Throws<InvalidDataException>(() =>
-            Vcdiff.Decode(Stream.Null, input, Stream.Null, armor: Blake3Armor.Verify)).Message);
+            Vcdiff.Decode(Stream.Null, input, Stream.Null, new VcdiffDecodeOptions { Armor = Blake3Armor.Verify })).Message);
     }
 }

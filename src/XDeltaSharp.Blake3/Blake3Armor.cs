@@ -2,7 +2,7 @@ namespace XDeltaSharp.Blake3;
 
 /// <summary>Enables verification of the BLAKE3 digests in xdelta3 application headers.</summary>
 /// <example><code>
-/// byte[] target = Vcdiff.Decode(source, patch, armor: Blake3Armor.Verify);
+/// byte[] target = Vcdiff.Decode(source, patch, new VcdiffDecodeOptions { Armor = Blake3Armor.Verify });
 /// </code></example>
 /// <seealso cref="VcdiffArmor"/>
 public static class Blake3Armor

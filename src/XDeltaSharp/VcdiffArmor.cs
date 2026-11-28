@@ -2,10 +2,11 @@ using System.Security.Cryptography;
 
 namespace XDeltaSharp;
 
-/// <summary>Selects optional application-header verification. An option can be shared across decode calls.</summary>
-/// <remarks>The default value skips armor verification. Use <c>Blake3Armor.Verify</c> from <c>xdelta.Blake3</c>
-/// to check whole-file digests when present, or <c>Blake3Armor.Require</c> to require armor.
-/// Adler-32 window checksums are verified independently.</remarks>
+/// <summary>Selects how <see cref="VcdiffDecodeOptions.Armor"/> checks the digests in a patch's application
+/// header.</summary>
+/// <remarks>The default value skips them. Use <c>Blake3Armor.Verify</c> from <c>xdelta.Blake3</c> to check
+/// digests when present, or <c>Blake3Armor.Require</c> to reject a patch without them. Adler-32 window
+/// checksums are always verified.</remarks>
 public readonly struct VcdiffArmor
 {
     private readonly Func<IArmorVerifier>? _createVerifier;

@@ -9,7 +9,7 @@ namespace XDeltaSharp.Tests;
 public class WindowWriterTests
 {
     [Fact]
-    public void WriterEmitsAllAddressModesAndPairedOpcodes()
+    public void EmitsAllAddressModesAndPairedOpcodes()
     {
         var writer = new WindowWriter(0, 16388, stackalloc byte[64], stackalloc byte[128],
             stackalloc byte[128], stackalloc int[768]);
@@ -45,7 +45,7 @@ public class WindowWriterTests
     }
 
     [Fact]
-    public void WriterPairsCopyThenAddAndSupportsOverlappingTargetAddresses()
+    public void PairsCopyThenAddAndSupportsOverlappingTargetAddresses()
     {
         var writer = new WindowWriter(0, 0, stackalloc byte[16], stackalloc byte[16], stackalloc byte[16], []);
         try
@@ -69,10 +69,10 @@ public class WindowWriterTests
     {
         for (int opcode = 163; opcode <= 255; opcode++)
         {
-            var (a, b) = DefaultCodeTable.Lookup((byte)opcode);
-            byte FirstOpcode(Instruction instruction) => (byte)Enumerable.Range(0, 163)
+            var (first, second) = DefaultCodeTable.Lookup((byte)opcode);
+            byte SingleOpcode(Instruction instruction) => (byte)Enumerable.Range(0, 163)
                 .Single(i => DefaultCodeTable.Lookup((byte)i).First == instruction);
-            Assert.True(DefaultCodeTable.TryPair(FirstOpcode(a), FirstOpcode(b), out var actual));
+            Assert.True(DefaultCodeTable.TryPair(SingleOpcode(first), SingleOpcode(second), out var actual));
             Assert.Equal(opcode, actual);
         }
     }

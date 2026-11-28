@@ -38,13 +38,16 @@ internal readonly ref struct MatchIndex
         }
     }
 
-    internal int Entry(int slot) => _large != null ? _large[slot] : _medium != null ? _medium[slot] : _small[slot];
-
-    internal void Set(int slot, int value)
+    /// <summary>A bucket head (slots below <see cref="BucketCount"/>) or a collision link. Zero means empty.</summary>
+    internal int this[int slot]
     {
-        if (_large != null) _large[slot] = value;
-        else if (_medium != null) _medium[slot] = (ushort)value;
-        else _small[slot] = (byte)value;
+        get => _large != null ? _large[slot] : _medium != null ? _medium[slot] : _small[slot];
+        set
+        {
+            if (_large != null) _large[slot] = value;
+            else if (_medium != null) _medium[slot] = (ushort)value;
+            else _small[slot] = (byte)value;
+        }
     }
 
     internal void Dispose()

@@ -14,7 +14,7 @@ dotnet test XDeltaSharp.sln -c Release
 The core codec lives in `src/XDeltaSharp`. The optional LZMA and BLAKE3 implementations have their own projects under `src/`. The test suite for all three is in `tests/XDeltaSharp.Tests`.
 
 - **Bug fixes.** Add a test that reproduces the problem. For a wire-format issue, a small source, patch, and expected target make the change easier to review. The [fixture guide](tests/XDeltaSharp.Tests/Fixtures/README.md) explains how the existing xdelta3 and open-vcdiff fixtures were generated.
-- **Public API changes.** Update the XML documentation and record new public signatures in the affected project’s `PublicAPI.Unshipped.txt`. If you change a README example, run `python3 eng/test-packages.py` to exercise it as a package consumer.
+- **Public API changes.** Update the XML documentation for any public API you change. If you change a README example, run `python3 eng/test-packages.py` to exercise it as a package consumer.
 - **Performance changes.** Compare the same workload before and after your change. Include the input, compression level, runtime, and architecture with your results. The [benchmark guide](benchmarks/README.md) lists the commands.
 
 Run `dotnet test XDeltaSharp.sln -c Release` and `dotnet format whitespace XDeltaSharp.sln --verify-no-changes` before submitting.

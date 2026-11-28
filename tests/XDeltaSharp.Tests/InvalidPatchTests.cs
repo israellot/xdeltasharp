@@ -76,10 +76,10 @@ public class InvalidPatchTests
     private static void AssertInvalid(byte[] patch, string reason = "truncated window")
     {
         byte[] source = [0, 1, 2, 3];
-        var allocating = Record.Exception(() => Vcdiff.Decode(source, patch, maxOutputBytes: 100));
+        var allocating = Record.Exception(() => Vcdiff.Decode(source, patch, new VcdiffDecodeOptions { MaxOutputBytes = 100 }));
         var intoBuffer = Record.Exception(() => Vcdiff.Decode(source, patch, new byte[100]));
         var streamed = Record.Exception(() => Vcdiff.Decode(new MemoryStream(source), new MemoryStream(patch),
-            Stream.Null, maxOutputBytes: 100));
+            Stream.Null, new VcdiffDecodeOptions { MaxOutputBytes = 100 }));
         Assert.True(allocating is InvalidDataException, $"Allocating overload, {reason}. Received {allocating}");
         Assert.True(intoBuffer is InvalidDataException, $"Span overload, {reason}. Received {intoBuffer}");
         Assert.True(streamed is InvalidDataException, $"Stream overload, {reason}. Received {streamed}");
